@@ -1,0 +1,35 @@
+<idea-plugin>
+    <id>com.github.copilotsilent</id>
+    <name>Copilot Silent Chat</name>
+    <version>0.1.0</version>
+    <vendor>copilot-silent-chat</vendor>
+
+    <description>Send messages to GitHub Copilot programmatically without opening the tool window.</description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.github.copilot</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <projectService
+            serviceInterface="com.github.copilotsilent.service.CopilotSilentChatService"
+            serviceImplementation="com.github.copilotsilent.service.CopilotSilentChatService"/>
+        <projectService
+            serviceInterface="com.github.copilotsilent.orchestrator.ChatOrchestrator"
+            serviceImplementation="com.github.copilotsilent.orchestrator.ChatOrchestrator"/>
+
+        <toolWindow id="Copilot Chat (React)"
+                    anchor="right"
+                    secondary="false"
+                    factoryClass="com.github.copilotsilent.ui.webview.CopilotWebToolWindowFactory"
+                    icon="AllIcons.Actions.Lightning"/>
+    </extensions>
+
+    <actions>
+        <action id="CopilotSilentChat.Send"
+                class="com.github.copilotsilent.ui.SendSilentMessageAction"
+                text="Send Silent Copilot Message"
+                description="Send a message to Copilot without opening the tool window">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+    </actions>
+</idea-plugin>
