@@ -165,20 +165,11 @@ class SqliteVecStore(
     }
 
     private fun deleteChunksForFileInternal(filePath: String) {
-        val ids = mutableListOf<Long>()
-        connection.prepareStatement("SELECT id FROM chunks WHERE file_path = ?").use { stmt ->
+        connection.prepareStatement(
+            "DELETE FROM vec_chunks WHERE chunk_id IN (SELECT id FROM chunks WHERE file_path = ?)"
+        ).use { stmt ->
             stmt.setString(1, filePath)
-            val rs = stmt.executeQuery()
-            while (rs.next()) ids.add(rs.getLong("id"))
-        }
-
-        if (ids.isEmpty()) return
-
-        for (id in ids) {
-            connection.prepareStatement("DELETE FROM vec_chunks WHERE chunk_id = ?").use { stmt ->
-                stmt.setLong(1, id)
-                stmt.executeUpdate()
-            }
+            stmt.executeUpdate()
         }
 
         connection.prepareStatement("DELETE FROM chunks WHERE file_path = ?").use { stmt ->

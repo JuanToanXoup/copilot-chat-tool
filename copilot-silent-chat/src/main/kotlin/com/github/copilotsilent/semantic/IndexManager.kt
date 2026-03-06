@@ -165,25 +165,7 @@ class IndexManager(private val project: Project) : Disposable {
 
         var chunksIndexed = 0
         for (file in filesToIndex) {
-            val relativePath = file.path.removePrefix(basePath).removePrefix("/")
-
-            currentStore.deleteChunksForFile(relativePath)
-
-            val chunks = extractChunks(file, basePath)
-            for (chunk in chunks) {
-                val embedding = currentEngine.embed(chunk.text)
-                currentStore.upsertChunk(
-                    filePath = chunk.filePath,
-                    startLine = chunk.startLine,
-                    endLine = chunk.endLine,
-                    text = chunk.text,
-                    hash = sha256(chunk.text),
-                    embedding = embedding
-                )
-                chunksIndexed++
-            }
-
-            currentStore.setFileTimestamp(relativePath, file.timeStamp)
+            chunksIndexed += indexFileChunks(currentStore, currentEngine, basePath, file)
 
             val done = processedFiles.incrementAndGet()
             if (done % 50 == 0) {
@@ -242,29 +224,43 @@ class IndexManager(private val project: Project) : Disposable {
                 val currentEngine = engine ?: return@executeOnPooledThread
                 val basePath = project.basePath ?: return@executeOnPooledThread
 
+                val count = indexFileChunks(currentStore, currentEngine, basePath, file)
                 val relativePath = file.path.removePrefix(basePath).removePrefix("/")
-                currentStore.deleteChunksForFile(relativePath)
-
-                val chunks = extractChunks(file, basePath)
-                for (chunk in chunks) {
-                    val embedding = currentEngine.embed(chunk.text)
-                    currentStore.upsertChunk(
-                        filePath = chunk.filePath,
-                        startLine = chunk.startLine,
-                        endLine = chunk.endLine,
-                        text = chunk.text,
-                        hash = sha256(chunk.text),
-                        embedding = embedding
-                    )
-                }
-
-                currentStore.setFileTimestamp(relativePath, file.timeStamp)
-
-                log.info("Re-indexed ${chunks.size} chunks for $relativePath")
+                log.info("Re-indexed $count chunks for $relativePath")
             } catch (e: Exception) {
                 log.warn("Failed to re-index file: ${file.path}", e)
             }
         }
+    }
+
+    /**
+     * Deletes existing chunks for the file, extracts new chunks, embeds, and upserts.
+     * Returns the number of chunks indexed.
+     */
+    private fun indexFileChunks(
+        store: SqliteVecStore,
+        engine: OnnxEmbeddingEngine,
+        basePath: String,
+        file: VirtualFile
+    ): Int {
+        val relativePath = file.path.removePrefix(basePath).removePrefix("/")
+        store.deleteChunksForFile(relativePath)
+
+        val chunks = extractChunks(file, basePath)
+        for (chunk in chunks) {
+            val embedding = engine.embed(chunk.text)
+            store.upsertChunk(
+                filePath = chunk.filePath,
+                startLine = chunk.startLine,
+                endLine = chunk.endLine,
+                text = chunk.text,
+                hash = sha256(chunk.text),
+                embedding = embedding
+            )
+        }
+
+        store.setFileTimestamp(relativePath, file.timeStamp)
+        return chunks.size
     }
 
     private fun registerFileWatcher() {

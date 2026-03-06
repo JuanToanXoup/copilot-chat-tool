@@ -9,6 +9,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import java.sql.Connection
+import java.sql.ResultSet
 import java.util.UUID
 
 /**
@@ -25,7 +26,8 @@ class SessionStore(private val project: Project) {
 
     private val log = Logger.getInstance(SessionStore::class.java)
     private val gson = Gson()
-    private lateinit var conn: Connection
+    private var conn: Connection? = null
+    private val initialized = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /** Tracks the most recent prompt per session for correlating with replies */
     private val lastPrompt = java.util.concurrent.ConcurrentHashMap<String, String>()
@@ -46,13 +48,13 @@ class SessionStore(private val project: Project) {
 
     fun init() {
         log.info("SessionStore.init() called")
-        conn = DatabaseManager.getSessionsConnection(project)
-        log.info("SessionStore database initialized, subscribing to SilentChatListener.TOPIC")
+        initDb()
 
         project.messageBus.connect().subscribe(
             SilentChatListener.TOPIC, object : SilentChatListener {
                 override fun onEvent(sessionId: String, event: SilentChatEvent) {
                     try {
+                        ensureInitialized()
                         handleEvent(sessionId, event)
                     } catch (e: Exception) {
                         log.warn("SessionStore failed to handle event: ${event::class.simpleName}", e)
@@ -63,12 +65,35 @@ class SessionStore(private val project: Project) {
         log.info("SessionStore initialized with db at ${DatabaseManager.projectDir(project)}")
     }
 
+    private fun initDb() {
+        try {
+            conn = DatabaseManager.getSessionsConnection(project)
+            initialized.set(true)
+            log.info("SessionStore database initialized")
+        } catch (e: Exception) {
+            log.warn("SessionStore database init failed, will retry on next event", e)
+        }
+    }
+
+    private fun ensureInitialized() {
+        if (initialized.get()) return
+        initDb()
+        if (!initialized.get()) {
+            throw IllegalStateException("SessionStore database not available")
+        }
+    }
+
+    private fun db(): Connection {
+        return conn ?: throw IllegalStateException("SessionStore database not initialized")
+    }
+
     // -- Playbook management --
 
     fun createPlaybook(): String {
+        ensureInitialized()
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
-        conn.prepareStatement("INSERT INTO playbook_runs (id, start_time) VALUES (?, ?)").use { stmt ->
+        db().prepareStatement("INSERT INTO playbook_runs (id, start_time) VALUES (?, ?)").use { stmt ->
             stmt.setString(1, id)
             stmt.setLong(2, now)
             stmt.executeUpdate()
@@ -77,7 +102,8 @@ class SessionStore(private val project: Project) {
     }
 
     fun assignSessionToPlaybook(sessionId: String, playbookId: String) {
-        conn.prepareStatement("UPDATE chat_sessions SET playbook_id = ? WHERE session_id = ?").use { stmt ->
+        ensureInitialized()
+        db().prepareStatement("UPDATE chat_sessions SET playbook_id = ? WHERE session_id = ?").use { stmt ->
             stmt.setString(1, playbookId)
             stmt.setString(2, sessionId)
             stmt.executeUpdate()
@@ -85,7 +111,8 @@ class SessionStore(private val project: Project) {
     }
 
     fun completePlaybook(playbookId: String) {
-        conn.prepareStatement("UPDATE playbook_runs SET end_time = ? WHERE id = ?").use { stmt ->
+        ensureInitialized()
+        db().prepareStatement("UPDATE playbook_runs SET end_time = ? WHERE id = ?").use { stmt ->
             stmt.setLong(1, System.currentTimeMillis())
             stmt.setString(2, playbookId)
             stmt.executeUpdate()
@@ -99,73 +126,42 @@ class SessionStore(private val project: Project) {
     // -- Queries --
 
     fun getPlaybook(id: String): PlaybookRun? {
-        val row = conn.prepareStatement("SELECT * FROM playbook_runs WHERE id = ?").use { stmt ->
+        ensureInitialized()
+        return db().prepareStatement("SELECT * FROM playbook_runs WHERE id = ?").use { stmt ->
             stmt.setString(1, id)
             val rs = stmt.executeQuery()
-            if (rs.next()) Triple(rs.getString("id"), rs.getLong("start_time"), rs.getLong("end_time").takeIf { !rs.wasNull() })
-            else null
-        } ?: return null
-
-        val sessions = getChatSessionsForPlaybook(id)
-        return PlaybookRun(
-            id = row.first,
-            startTime = row.second,
-            endTime = row.third,
-            chatSessions = sessions.toMutableList(),
-        )
+            if (rs.next()) rs.toPlaybookRun() else null
+        }
     }
 
     fun getSession(sessionId: String): ChatSession? {
-        return conn.prepareStatement("SELECT * FROM chat_sessions WHERE session_id = ?").use { stmt ->
+        ensureInitialized()
+        return db().prepareStatement("SELECT * FROM chat_sessions WHERE session_id = ?").use { stmt ->
             stmt.setString(1, sessionId)
             val rs = stmt.executeQuery()
-            if (rs.next()) {
-                val entries = getEntriesForSession(sessionId)
-                ChatSession(
-                    sessionId = rs.getString("session_id"),
-                    playbookId = rs.getString("playbook_id"),
-                    startTime = rs.getLong("start_time"),
-                    endTime = rs.getLong("end_time").takeIf { !rs.wasNull() },
-                    status = SessionStatus.valueOf(rs.getString("status")),
-                    entries = entries.toMutableList(),
-                )
-            } else null
+            if (rs.next()) rs.toChatSession() else null
         }
     }
 
     fun allPlaybooks(): List<PlaybookRun> {
+        ensureInitialized()
         val result = mutableListOf<PlaybookRun>()
-        conn.createStatement().use { stmt ->
+        db().createStatement().use { stmt ->
             val rs = stmt.executeQuery("SELECT * FROM playbook_runs ORDER BY start_time DESC")
             while (rs.next()) {
-                val id = rs.getString("id")
-                val sessions = getChatSessionsForPlaybook(id)
-                result.add(PlaybookRun(
-                    id = id,
-                    startTime = rs.getLong("start_time"),
-                    endTime = rs.getLong("end_time").takeIf { !rs.wasNull() },
-                    chatSessions = sessions.toMutableList(),
-                ))
+                result.add(rs.toPlaybookRun())
             }
         }
         return result
     }
 
     fun allSessions(): List<ChatSession> {
+        ensureInitialized()
         val result = mutableListOf<ChatSession>()
-        conn.createStatement().use { stmt ->
+        db().createStatement().use { stmt ->
             val rs = stmt.executeQuery("SELECT * FROM chat_sessions ORDER BY start_time DESC")
             while (rs.next()) {
-                val sid = rs.getString("session_id")
-                val entries = getEntriesForSession(sid)
-                result.add(ChatSession(
-                    sessionId = sid,
-                    playbookId = rs.getString("playbook_id"),
-                    startTime = rs.getLong("start_time"),
-                    endTime = rs.getLong("end_time").takeIf { !rs.wasNull() },
-                    status = SessionStatus.valueOf(rs.getString("status")),
-                    entries = entries.toMutableList(),
-                ))
+                result.add(rs.toChatSession())
             }
         }
         return result
@@ -173,22 +169,37 @@ class SessionStore(private val project: Project) {
 
     // -- Internal queries --
 
+    private fun ResultSet.toPlaybookRun(): PlaybookRun {
+        val id = getString("id")
+        val sessions = getChatSessionsForPlaybook(id)
+        return PlaybookRun(
+            id = id,
+            startTime = getLong("start_time"),
+            endTime = getLong("end_time").takeIf { !wasNull() },
+            chatSessions = sessions.toMutableList(),
+        )
+    }
+
+    private fun ResultSet.toChatSession(): ChatSession {
+        val sid = getString("session_id")
+        val entries = getEntriesForSession(sid)
+        return ChatSession(
+            sessionId = sid,
+            playbookId = getString("playbook_id"),
+            startTime = getLong("start_time"),
+            endTime = getLong("end_time").takeIf { !wasNull() },
+            status = SessionStatus.valueOf(getString("status")),
+            entries = entries.toMutableList(),
+        )
+    }
+
     private fun getChatSessionsForPlaybook(playbookId: String): List<ChatSession> {
         val result = mutableListOf<ChatSession>()
-        conn.prepareStatement("SELECT * FROM chat_sessions WHERE playbook_id = ? ORDER BY start_time ASC").use { stmt ->
+        db().prepareStatement("SELECT * FROM chat_sessions WHERE playbook_id = ? ORDER BY start_time ASC").use { stmt ->
             stmt.setString(1, playbookId)
             val rs = stmt.executeQuery()
             while (rs.next()) {
-                val sid = rs.getString("session_id")
-                val entries = getEntriesForSession(sid)
-                result.add(ChatSession(
-                    sessionId = sid,
-                    playbookId = rs.getString("playbook_id"),
-                    startTime = rs.getLong("start_time"),
-                    endTime = rs.getLong("end_time").takeIf { !rs.wasNull() },
-                    status = SessionStatus.valueOf(rs.getString("status")),
-                    entries = entries.toMutableList(),
-                ))
+                result.add(rs.toChatSession())
             }
         }
         return result
@@ -196,7 +207,7 @@ class SessionStore(private val project: Project) {
 
     private fun getEntriesForSession(sessionId: String): List<SessionEntry> {
         val result = mutableListOf<SessionEntry>()
-        conn.prepareStatement("SELECT * FROM session_entries WHERE chat_session_id = ? ORDER BY start_time ASC").use { stmt ->
+        db().prepareStatement("SELECT * FROM session_entries WHERE chat_session_id = ? ORDER BY start_time ASC").use { stmt ->
             stmt.setString(1, sessionId)
             val rs = stmt.executeQuery()
             while (rs.next()) {
@@ -247,7 +258,7 @@ class SessionStore(private val project: Project) {
             is SilentChatEvent.ToolCallUpdate -> onToolCallUpdate(event)
             is SilentChatEvent.Complete -> onComplete(sessionId, event)
             is SilentChatEvent.Error -> onError(sessionId, event)
-            is SilentChatEvent.Cancel -> onCancel(sessionId)
+            is SilentChatEvent.Cancel -> onCancel(sessionId, event)
             else -> {}
         }
     }
@@ -258,20 +269,20 @@ class SessionStore(private val project: Project) {
         }
 
         // Upsert: update if exists, insert if not
-        val exists = conn.prepareStatement("SELECT 1 FROM chat_sessions WHERE session_id = ?").use { stmt ->
+        val exists = db().prepareStatement("SELECT 1 FROM chat_sessions WHERE session_id = ?").use { stmt ->
             stmt.setString(1, event.sessionId)
             stmt.executeQuery().next()
         }
 
         if (exists) {
-            conn.prepareStatement("UPDATE chat_sessions SET start_time = ?, status = ? WHERE session_id = ?").use { stmt ->
+            db().prepareStatement("UPDATE chat_sessions SET start_time = ?, status = ? WHERE session_id = ?").use { stmt ->
                 stmt.setLong(1, event.timestamp)
                 stmt.setString(2, SessionStatus.ACTIVE.name)
                 stmt.setString(3, event.sessionId)
                 stmt.executeUpdate()
             }
         } else {
-            conn.prepareStatement("INSERT INTO chat_sessions (session_id, start_time, status) VALUES (?, ?, ?)").use { stmt ->
+            db().prepareStatement("INSERT INTO chat_sessions (session_id, start_time, status) VALUES (?, ?, ?)").use { stmt ->
                 stmt.setString(1, event.sessionId)
                 stmt.setLong(2, event.timestamp)
                 stmt.setString(3, SessionStatus.ACTIVE.name)
@@ -284,13 +295,13 @@ class SessionStore(private val project: Project) {
     private fun onTurnIdSync(sessionId: String, event: SilentChatEvent.TurnIdSync) {
         currentTurnId[sessionId] = event.turnId
 
-        val exists = conn.prepareStatement("SELECT 1 FROM session_entries WHERE id = ?").use { stmt ->
+        val exists = db().prepareStatement("SELECT 1 FROM session_entries WHERE id = ?").use { stmt ->
             stmt.setString(1, event.turnId)
             stmt.executeQuery().next()
         }
 
         if (!exists) {
-            conn.prepareStatement(
+            db().prepareStatement(
                 "INSERT INTO session_entries (id, chat_session_id, entry_type, start_time, status, prompt) VALUES (?, ?, ?, ?, ?, ?)"
             ).use { stmt ->
                 stmt.setString(1, event.turnId)
@@ -306,7 +317,7 @@ class SessionStore(private val project: Project) {
 
     private fun onReply(sessionId: String, event: SilentChatEvent.Reply) {
         val turnId = currentTurnId[sessionId] ?: event.parentTurnId ?: return
-        conn.prepareStatement("UPDATE session_entries SET response = ?, reply_length = ? WHERE id = ?").use { stmt ->
+        db().prepareStatement("UPDATE session_entries SET response = ?, reply_length = ? WHERE id = ?").use { stmt ->
             stmt.setString(1, event.accumulated)
             stmt.setInt(2, event.accumulated.length)
             stmt.setString(3, turnId)
@@ -316,7 +327,7 @@ class SessionStore(private val project: Project) {
 
     private fun onToolCallUpdate(event: SilentChatEvent.ToolCallUpdate) {
         val toolCallId = event.toolCallId ?: return
-        val exists = conn.prepareStatement("SELECT 1 FROM session_entries WHERE id = ?").use { stmt ->
+        val exists = db().prepareStatement("SELECT 1 FROM session_entries WHERE id = ?").use { stmt ->
             stmt.setString(1, toolCallId)
             stmt.executeQuery().next()
         }
@@ -325,7 +336,7 @@ class SessionStore(private val project: Project) {
         val outputJson = event.result?.let { gson.toJson(it) }
 
         if (exists) {
-            conn.prepareStatement(
+            db().prepareStatement(
                 "UPDATE session_entries SET status = ?, error = ?, duration_ms = ?, output = COALESCE(?, output), end_time = CASE WHEN ? != 'running' THEN ? ELSE end_time END WHERE id = ?"
             ).use { stmt ->
                 stmt.setString(1, event.status ?: "unknown")
@@ -338,7 +349,7 @@ class SessionStore(private val project: Project) {
                 stmt.executeUpdate()
             }
         } else {
-            conn.prepareStatement(
+            db().prepareStatement(
                 "INSERT INTO session_entries (id, chat_session_id, entry_type, start_time, status, tool_name, tool_type, input, output, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             ).use { stmt ->
                 stmt.setString(1, toolCallId)
@@ -357,14 +368,14 @@ class SessionStore(private val project: Project) {
     }
 
     private fun onComplete(sessionId: String, event: SilentChatEvent.Complete) {
-        conn.prepareStatement("UPDATE chat_sessions SET status = ?, end_time = ? WHERE session_id = ?").use { stmt ->
+        db().prepareStatement("UPDATE chat_sessions SET status = ?, end_time = ? WHERE session_id = ?").use { stmt ->
             stmt.setString(1, SessionStatus.COMPLETED.name)
             stmt.setLong(2, event.timestamp)
             stmt.setString(3, sessionId)
             stmt.executeUpdate()
         }
 
-        conn.prepareStatement(
+        db().prepareStatement(
             "UPDATE session_entries SET end_time = ?, status = ? WHERE chat_session_id = ? AND entry_type = 'message' AND end_time IS NULL"
         ).use { stmt ->
             stmt.setLong(1, event.timestamp)
@@ -373,26 +384,33 @@ class SessionStore(private val project: Project) {
             stmt.executeUpdate()
         }
         publishStatus(sessionId, SessionStatus.COMPLETED)
+        cleanupSessionMaps(sessionId)
     }
 
     private fun onError(sessionId: String, event: SilentChatEvent.Error) {
-        conn.prepareStatement("UPDATE chat_sessions SET status = ?, end_time = ? WHERE session_id = ?").use { stmt ->
+        db().prepareStatement("UPDATE chat_sessions SET status = ?, end_time = ? WHERE session_id = ?").use { stmt ->
             stmt.setString(1, SessionStatus.ERROR.name)
             stmt.setLong(2, event.timestamp)
             stmt.setString(3, sessionId)
             stmt.executeUpdate()
         }
         publishStatus(sessionId, SessionStatus.ERROR)
+        cleanupSessionMaps(sessionId)
     }
 
-    private fun onCancel(sessionId: String) {
-        val now = System.currentTimeMillis()
-        conn.prepareStatement("UPDATE chat_sessions SET status = ?, end_time = ? WHERE session_id = ?").use { stmt ->
+    private fun onCancel(sessionId: String, event: SilentChatEvent.Cancel) {
+        db().prepareStatement("UPDATE chat_sessions SET status = ?, end_time = ? WHERE session_id = ?").use { stmt ->
             stmt.setString(1, SessionStatus.CANCELLED.name)
-            stmt.setLong(2, now)
+            stmt.setLong(2, event.timestamp)
             stmt.setString(3, sessionId)
             stmt.executeUpdate()
         }
         publishStatus(sessionId, SessionStatus.CANCELLED)
+        cleanupSessionMaps(sessionId)
+    }
+
+    private fun cleanupSessionMaps(sessionId: String) {
+        lastPrompt.remove(sessionId)
+        currentTurnId.remove(sessionId)
     }
 }
