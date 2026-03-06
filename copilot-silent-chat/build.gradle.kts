@@ -15,10 +15,8 @@ val copilotPluginDir = file("../github-copilot-intellij-1.5.65-243")
 intellij {
     version.set("2024.3")
     type.set("IC")
-    // No marketplace plugin reference — we add jars manually
+    plugins.set(listOf("com.intellij.java"))
 }
-
-val exposedVersion = "0.58.0"
 
 dependencies {
     // Compile against the Copilot plugin jars
@@ -26,19 +24,15 @@ dependencies {
         include("*.jar")
     })
 
-    // SQLite + Exposed ORM for session persistence
-    implementation("org.xerial:sqlite-jdbc:3.47.2.0")
-    implementation("org.jetbrains.exposed:exposed-core:$exposedVersion") {
-        exclude(group = "org.jetbrains.kotlin")
-        exclude(group = "org.jetbrains.kotlinx")
+    // SQLite JDBC — raw JDBC for session persistence and vector store
+    implementation("org.xerial:sqlite-jdbc:3.47.2.0") {
+        exclude(group = "org.slf4j")
     }
-    implementation("org.jetbrains.exposed:exposed-jdbc:$exposedVersion") {
-        exclude(group = "org.jetbrains.kotlin")
-        exclude(group = "org.jetbrains.kotlinx")
-    }
-    implementation("org.jetbrains.exposed:exposed-dao:$exposedVersion") {
-        exclude(group = "org.jetbrains.kotlin")
-        exclude(group = "org.jetbrains.kotlinx")
+
+    // ONNX Runtime for local embedding model
+    implementation("com.microsoft.onnxruntime:onnxruntime:1.17.3") {
+        exclude(group = "org.slf4j")
+        exclude(group = "io.netty")
     }
 
     // Kotlin stdlib and coroutines are provided by IntelliJ — do not bundle

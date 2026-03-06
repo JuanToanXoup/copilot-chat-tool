@@ -7,6 +7,7 @@
     <description>Send messages to GitHub Copilot programmatically without opening the tool window.</description>
 
     <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.java</depends>
     <depends>com.github.copilot</depends>
 
     <extensions defaultExtensionNs="com.intellij">
@@ -14,6 +15,8 @@
             implementation="com.github.copilotsilent.store.SessionStoreInitializer"/>
         <postStartupActivity
             implementation="com.github.copilotsilent.service.StateFlowBroadcasterInitializer"/>
+        <postStartupActivity
+            implementation="com.github.copilotsilent.semantic.IndexManagerInitializer"/>
 
         <toolWindow id="Copilot Chat (React)"
                     anchor="right"

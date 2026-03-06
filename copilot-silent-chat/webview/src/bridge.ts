@@ -66,6 +66,16 @@ export function stopGeneration(): void {
   postMessage({ command: 'stopGeneration' })
 }
 
+/** Request stored sessions */
+export function requestSessions(): void {
+  postMessage({ command: 'getSessions' })
+}
+
+/** Request stored playbooks */
+export function requestPlaybooks(): void {
+  postMessage({ command: 'getPlaybooks' })
+}
+
 /** Send a chat message */
 export function sendMessage(opts: {
   message: string

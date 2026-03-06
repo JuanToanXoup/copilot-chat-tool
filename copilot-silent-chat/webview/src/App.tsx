@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { subscribe, sendMessage, stopGeneration, requestModels, requestModes, type JcefDataEvent } from './bridge'
 import type { ChatMessage, ToolCall, StepInfo, ModelOption, ModeOption } from './types'
 import MarkdownRenderer from './MarkdownRenderer'
+import SessionsView from './SessionsView'
 import './style.css'
 
 let messageIdCounter = 0
@@ -22,6 +23,7 @@ export default function App() {
   const [input, setInput] = useState('')
   const [newSession, setNewSession] = useState(false)
   const [silent, setSilent] = useState(true)
+  const [activeTab, setActiveTab] = useState<'chat' | 'sessions'>('chat')
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const currentAssistantId = useRef<string | null>(null)
@@ -202,6 +204,19 @@ export default function App() {
 
   return (
     <div className="app">
+      {/* Tab bar */}
+      <div className="tab-bar">
+        <button
+          className={`tab ${activeTab === 'chat' ? 'tab-active' : ''}`}
+          onClick={() => setActiveTab('chat')}
+        >Chat</button>
+        <button
+          className={`tab ${activeTab === 'sessions' ? 'tab-active' : ''}`}
+          onClick={() => setActiveTab('sessions')}
+        >Sessions</button>
+      </div>
+
+      {activeTab === 'sessions' ? <SessionsView /> : <>
       {/* Toolbar */}
       <div className="toolbar">
         <select
@@ -336,6 +351,7 @@ export default function App() {
           {isLoading ? 'Stop' : 'Send'}
         </button>
       </div>
+      </>}
     </div>
   )
 }

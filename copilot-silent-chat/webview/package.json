@@ -17,6 +17,7 @@
     "shiki": "^4.0.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.37.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.4.1",

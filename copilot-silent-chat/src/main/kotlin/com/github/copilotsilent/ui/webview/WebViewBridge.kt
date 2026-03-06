@@ -7,6 +7,7 @@ import com.github.copilotsilent.model.ModesUpdateListener
 import com.github.copilotsilent.model.SilentChatEvent
 import com.github.copilotsilent.model.SilentChatListener
 import com.github.copilotsilent.service.CopilotSilentChatService
+import com.github.copilotsilent.store.SessionEntry
 import com.github.copilotsilent.store.SessionStore
 import com.google.gson.Gson
 import com.google.gson.JsonParser
@@ -98,6 +99,8 @@ class WebViewBridge(
                 "stopGeneration" -> service.stopGeneration()
                 "getModels" -> handleGetModels()
                 "getModes" -> handleGetModes()
+                "getSessions" -> handleGetSessions()
+                "getPlaybooks" -> handleGetPlaybooks()
                 else -> log.warn("Unknown bridge command: $command")
             }
         } catch (e: Exception) {
@@ -142,6 +145,71 @@ class WebViewBridge(
 
     private fun handleGetModes() {
         pushModes(service.getAvailableModes(), service.getCurrentMode())
+    }
+
+    private fun handleGetSessions() {
+        val sessions = sessionStore.allSessions().map { session ->
+            mapOf(
+                "sessionId" to session.sessionId,
+                "playbookId" to session.playbookId,
+                "startTime" to session.startTime,
+                "endTime" to session.endTime,
+                "status" to session.status.name,
+                "durationMs" to session.durationMs,
+                "entries" to session.entries.map { entryToMap(it) },
+            )
+        }
+        panel.pushData("sessions", gson.toJson(sessions))
+    }
+
+    private fun handleGetPlaybooks() {
+        val playbooks = sessionStore.allPlaybooks().map { pb ->
+            mapOf(
+                "id" to pb.id,
+                "startTime" to pb.startTime,
+                "endTime" to pb.endTime,
+                "durationMs" to pb.durationMs,
+                "chatSessions" to pb.chatSessions.map { session ->
+                    mapOf(
+                        "sessionId" to session.sessionId,
+                        "playbookId" to session.playbookId,
+                        "startTime" to session.startTime,
+                        "endTime" to session.endTime,
+                        "status" to session.status.name,
+                        "durationMs" to session.durationMs,
+                        "entries" to session.entries.map { entryToMap(it) },
+                    )
+                },
+            )
+        }
+        panel.pushData("playbooks", gson.toJson(playbooks))
+    }
+
+    private fun entryToMap(entry: SessionEntry): Map<String, Any?> = when (entry) {
+        is SessionEntry.Message -> mapOf(
+            "id" to entry.id,
+            "entryType" to "message",
+            "startTime" to entry.startTime,
+            "endTime" to entry.endTime,
+            "status" to entry.status,
+            "durationMs" to entry.durationMs,
+            "prompt" to entry.prompt,
+            "response" to entry.response,
+            "replyLength" to entry.replyLength,
+        )
+        is SessionEntry.ToolCall -> mapOf(
+            "id" to entry.id,
+            "entryType" to "tool_call",
+            "startTime" to entry.startTime,
+            "endTime" to entry.endTime,
+            "status" to entry.status,
+            "durationMs" to entry.durationMs,
+            "toolName" to entry.toolName,
+            "toolType" to entry.toolType,
+            "input" to entry.input,
+            "output" to entry.output,
+            "error" to entry.error,
+        )
     }
 
     /**

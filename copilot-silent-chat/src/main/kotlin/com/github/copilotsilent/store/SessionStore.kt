@@ -3,22 +3,18 @@ package com.github.copilotsilent.store
 import com.github.copilotsilent.model.ChatStatusListener
 import com.github.copilotsilent.model.SilentChatEvent
 import com.github.copilotsilent.model.SilentChatListener
-import com.github.copilotsilent.store.db.ChatSessions
 import com.github.copilotsilent.store.db.DatabaseManager
-import com.github.copilotsilent.store.db.PlaybookRuns
-import com.github.copilotsilent.store.db.SessionEntries
 import com.google.gson.Gson
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
-import org.jetbrains.exposed.sql.*
-import org.jetbrains.exposed.sql.transactions.transaction
+import java.sql.Connection
 import java.util.UUID
 
 /**
  * Event-sourced session store. Subscribes to [SilentChatListener.TOPIC]
  * and persists [PlaybookRun] / [ChatSession] / [SessionEntry] state to
- * ~/.citi-ai/projects/{project-slug}/sessions.db via Exposed ORM.
+ * ~/.citi-ai/projects/{project-slug}/sessions.db via raw JDBC.
  */
 @Service(Service.Level.PROJECT)
 class SessionStore(private val project: Project) {
@@ -29,10 +25,13 @@ class SessionStore(private val project: Project) {
 
     private val log = Logger.getInstance(SessionStore::class.java)
     private val gson = Gson()
-    private lateinit var db: Database
+    private lateinit var conn: Connection
 
     /** Tracks the most recent prompt per session for correlating with replies */
     private val lastPrompt = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /** Tracks the current turnId per session so Reply events can find the right entry */
+    private val currentTurnId = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     /** In-memory status cache for fast queries */
     private val liveStatus = java.util.concurrent.ConcurrentHashMap<String, SessionStatus>()
@@ -46,7 +45,9 @@ class SessionStore(private val project: Project) {
     }
 
     fun init() {
-        db = DatabaseManager.initSessionsDb(project)
+        log.info("SessionStore.init() called")
+        conn = DatabaseManager.getSessionsConnection(project)
+        log.info("SessionStore database initialized, subscribing to SilentChatListener.TOPIC")
 
         project.messageBus.connect().subscribe(
             SilentChatListener.TOPIC, object : SilentChatListener {
@@ -67,137 +68,173 @@ class SessionStore(private val project: Project) {
     fun createPlaybook(): String {
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
-        transaction(db) {
-            PlaybookRuns.insert {
-                it[PlaybookRuns.id] = id
-                it[startTime] = now
-            }
+        conn.prepareStatement("INSERT INTO playbook_runs (id, start_time) VALUES (?, ?)").use { stmt ->
+            stmt.setString(1, id)
+            stmt.setLong(2, now)
+            stmt.executeUpdate()
         }
         return id
     }
 
     fun assignSessionToPlaybook(sessionId: String, playbookId: String) {
-        transaction(db) {
-            ChatSessions.update({ ChatSessions.sessionId eq sessionId }) {
-                it[ChatSessions.playbookId] = playbookId
-            }
+        conn.prepareStatement("UPDATE chat_sessions SET playbook_id = ? WHERE session_id = ?").use { stmt ->
+            stmt.setString(1, playbookId)
+            stmt.setString(2, sessionId)
+            stmt.executeUpdate()
         }
     }
 
     fun completePlaybook(playbookId: String) {
-        transaction(db) {
-            PlaybookRuns.update({ PlaybookRuns.id eq playbookId }) {
-                it[endTime] = System.currentTimeMillis()
-            }
+        conn.prepareStatement("UPDATE playbook_runs SET end_time = ? WHERE id = ?").use { stmt ->
+            stmt.setLong(1, System.currentTimeMillis())
+            stmt.setString(2, playbookId)
+            stmt.executeUpdate()
         }
     }
 
-    /**
-     * Records the user's prompt for a session so it can be stored
-     * with the message entry when the turn starts.
-     */
     fun recordPrompt(sessionId: String, prompt: String) {
         lastPrompt[sessionId] = prompt
     }
 
     // -- Queries --
 
-    fun getPlaybook(id: String): PlaybookRun? = transaction(db) {
-        val row = PlaybookRuns.selectAll().where { PlaybookRuns.id eq id }.firstOrNull() ?: return@transaction null
+    fun getPlaybook(id: String): PlaybookRun? {
+        val row = conn.prepareStatement("SELECT * FROM playbook_runs WHERE id = ?").use { stmt ->
+            stmt.setString(1, id)
+            val rs = stmt.executeQuery()
+            if (rs.next()) Triple(rs.getString("id"), rs.getLong("start_time"), rs.getLong("end_time").takeIf { !rs.wasNull() })
+            else null
+        } ?: return null
+
         val sessions = getChatSessionsForPlaybook(id)
-        PlaybookRun(
-            id = row[PlaybookRuns.id],
-            startTime = row[PlaybookRuns.startTime],
-            endTime = row[PlaybookRuns.endTime],
+        return PlaybookRun(
+            id = row.first,
+            startTime = row.second,
+            endTime = row.third,
             chatSessions = sessions.toMutableList(),
         )
     }
 
-    fun getSession(sessionId: String): ChatSession? = transaction(db) {
-        val row = ChatSessions.selectAll().where { ChatSessions.sessionId eq sessionId }.firstOrNull()
-            ?: return@transaction null
-        val entries = getEntriesForSession(sessionId)
-        rowToChatSession(row, entries)
-    }
-
-    fun allPlaybooks(): List<PlaybookRun> = transaction(db) {
-        PlaybookRuns.selectAll()
-            .orderBy(PlaybookRuns.startTime to SortOrder.DESC)
-            .map { row ->
-                val sessions = getChatSessionsForPlaybook(row[PlaybookRuns.id])
-                PlaybookRun(
-                    id = row[PlaybookRuns.id],
-                    startTime = row[PlaybookRuns.startTime],
-                    endTime = row[PlaybookRuns.endTime],
-                    chatSessions = sessions.toMutableList(),
+    fun getSession(sessionId: String): ChatSession? {
+        return conn.prepareStatement("SELECT * FROM chat_sessions WHERE session_id = ?").use { stmt ->
+            stmt.setString(1, sessionId)
+            val rs = stmt.executeQuery()
+            if (rs.next()) {
+                val entries = getEntriesForSession(sessionId)
+                ChatSession(
+                    sessionId = rs.getString("session_id"),
+                    playbookId = rs.getString("playbook_id"),
+                    startTime = rs.getLong("start_time"),
+                    endTime = rs.getLong("end_time").takeIf { !rs.wasNull() },
+                    status = SessionStatus.valueOf(rs.getString("status")),
+                    entries = entries.toMutableList(),
                 )
-            }
+            } else null
+        }
     }
 
-    fun allSessions(): List<ChatSession> = transaction(db) {
-        ChatSessions.selectAll()
-            .orderBy(ChatSessions.startTime to SortOrder.DESC)
-            .map { row ->
-                val entries = getEntriesForSession(row[ChatSessions.sessionId])
-                rowToChatSession(row, entries)
+    fun allPlaybooks(): List<PlaybookRun> {
+        val result = mutableListOf<PlaybookRun>()
+        conn.createStatement().use { stmt ->
+            val rs = stmt.executeQuery("SELECT * FROM playbook_runs ORDER BY start_time DESC")
+            while (rs.next()) {
+                val id = rs.getString("id")
+                val sessions = getChatSessionsForPlaybook(id)
+                result.add(PlaybookRun(
+                    id = id,
+                    startTime = rs.getLong("start_time"),
+                    endTime = rs.getLong("end_time").takeIf { !rs.wasNull() },
+                    chatSessions = sessions.toMutableList(),
+                ))
             }
+        }
+        return result
+    }
+
+    fun allSessions(): List<ChatSession> {
+        val result = mutableListOf<ChatSession>()
+        conn.createStatement().use { stmt ->
+            val rs = stmt.executeQuery("SELECT * FROM chat_sessions ORDER BY start_time DESC")
+            while (rs.next()) {
+                val sid = rs.getString("session_id")
+                val entries = getEntriesForSession(sid)
+                result.add(ChatSession(
+                    sessionId = sid,
+                    playbookId = rs.getString("playbook_id"),
+                    startTime = rs.getLong("start_time"),
+                    endTime = rs.getLong("end_time").takeIf { !rs.wasNull() },
+                    status = SessionStatus.valueOf(rs.getString("status")),
+                    entries = entries.toMutableList(),
+                ))
+            }
+        }
+        return result
     }
 
     // -- Internal queries --
 
     private fun getChatSessionsForPlaybook(playbookId: String): List<ChatSession> {
-        return ChatSessions.selectAll().where { ChatSessions.playbookId eq playbookId }
-            .orderBy(ChatSessions.startTime to SortOrder.ASC)
-            .map { row ->
-                val entries = getEntriesForSession(row[ChatSessions.sessionId])
-                rowToChatSession(row, entries)
+        val result = mutableListOf<ChatSession>()
+        conn.prepareStatement("SELECT * FROM chat_sessions WHERE playbook_id = ? ORDER BY start_time ASC").use { stmt ->
+            stmt.setString(1, playbookId)
+            val rs = stmt.executeQuery()
+            while (rs.next()) {
+                val sid = rs.getString("session_id")
+                val entries = getEntriesForSession(sid)
+                result.add(ChatSession(
+                    sessionId = sid,
+                    playbookId = rs.getString("playbook_id"),
+                    startTime = rs.getLong("start_time"),
+                    endTime = rs.getLong("end_time").takeIf { !rs.wasNull() },
+                    status = SessionStatus.valueOf(rs.getString("status")),
+                    entries = entries.toMutableList(),
+                ))
             }
+        }
+        return result
     }
 
     private fun getEntriesForSession(sessionId: String): List<SessionEntry> {
-        return SessionEntries.selectAll().where { SessionEntries.chatSessionId eq sessionId }
-            .orderBy(SessionEntries.startTime to SortOrder.ASC)
-            .map { rowToEntry(it) }
-    }
+        val result = mutableListOf<SessionEntry>()
+        conn.prepareStatement("SELECT * FROM session_entries WHERE chat_session_id = ? ORDER BY start_time ASC").use { stmt ->
+            stmt.setString(1, sessionId)
+            val rs = stmt.executeQuery()
+            while (rs.next()) {
+                val entryType = rs.getString("entry_type")
+                val id = rs.getString("id")
+                val chatSessionId = rs.getString("chat_session_id")
+                val startTime = rs.getLong("start_time")
+                val endTime = rs.getLong("end_time").takeIf { !rs.wasNull() }
+                val status = rs.getString("status")
 
-    private fun rowToChatSession(row: ResultRow, entries: List<SessionEntry>): ChatSession {
-        return ChatSession(
-            sessionId = row[ChatSessions.sessionId],
-            playbookId = row[ChatSessions.playbookId],
-            startTime = row[ChatSessions.startTime],
-            endTime = row[ChatSessions.endTime],
-            status = SessionStatus.valueOf(row[ChatSessions.status]),
-            entries = entries.toMutableList(),
-        )
-    }
-
-    private fun rowToEntry(row: ResultRow): SessionEntry {
-        return when (row[SessionEntries.entryType]) {
-            "message" -> SessionEntry.Message(
-                id = row[SessionEntries.id],
-                chatSessionId = row[SessionEntries.chatSessionId],
-                startTime = row[SessionEntries.startTime],
-                endTime = row[SessionEntries.endTime],
-                status = row[SessionEntries.status],
-                prompt = row[SessionEntries.prompt],
-                response = row[SessionEntries.response],
-                replyLength = row[SessionEntries.replyLength] ?: 0,
-            )
-            "tool_call" -> SessionEntry.ToolCall(
-                id = row[SessionEntries.id],
-                chatSessionId = row[SessionEntries.chatSessionId],
-                startTime = row[SessionEntries.startTime],
-                endTime = row[SessionEntries.endTime],
-                status = row[SessionEntries.status],
-                toolName = row[SessionEntries.toolName],
-                toolType = row[SessionEntries.toolType],
-                input = row[SessionEntries.input],
-                output = row[SessionEntries.output],
-                error = row[SessionEntries.error],
-                durationFromAgent = row[SessionEntries.durationMs],
-            )
-            else -> throw IllegalStateException("Unknown entry type: ${row[SessionEntries.entryType]}")
+                when (entryType) {
+                    "message" -> result.add(SessionEntry.Message(
+                        id = id,
+                        chatSessionId = chatSessionId,
+                        startTime = startTime,
+                        endTime = endTime,
+                        status = status,
+                        prompt = rs.getString("prompt"),
+                        response = rs.getString("response"),
+                        replyLength = rs.getInt("reply_length"),
+                    ))
+                    "tool_call" -> result.add(SessionEntry.ToolCall(
+                        id = id,
+                        chatSessionId = chatSessionId,
+                        startTime = startTime,
+                        endTime = endTime,
+                        status = status,
+                        toolName = rs.getString("tool_name"),
+                        toolType = rs.getString("tool_type"),
+                        input = rs.getString("input"),
+                        output = rs.getString("output"),
+                        error = rs.getString("error"),
+                        durationFromAgent = rs.getLong("duration_ms").takeIf { !rs.wasNull() },
+                    ))
+                }
+            }
         }
+        return result
     }
 
     // -- Event handling --
@@ -216,134 +253,145 @@ class SessionStore(private val project: Project) {
     }
 
     private fun onSessionReady(event: SilentChatEvent.SessionReady) {
-        // Resolve pending prompt key → real session ID
         lastPrompt.remove(PENDING_PROMPT_KEY)?.let { prompt ->
             lastPrompt[event.sessionId] = prompt
         }
 
-        transaction(db) {
-            val exists = ChatSessions.selectAll()
-                .where { ChatSessions.sessionId eq event.sessionId }
-                .count() > 0
+        // Upsert: update if exists, insert if not
+        val exists = conn.prepareStatement("SELECT 1 FROM chat_sessions WHERE session_id = ?").use { stmt ->
+            stmt.setString(1, event.sessionId)
+            stmt.executeQuery().next()
+        }
 
-            if (exists) {
-                ChatSessions.update({ ChatSessions.sessionId eq event.sessionId }) {
-                    it[startTime] = event.timestamp
-                    it[status] = SessionStatus.ACTIVE.name
-                }
-            } else {
-                ChatSessions.insert {
-                    it[sessionId] = event.sessionId
-                    it[startTime] = event.timestamp
-                    it[status] = SessionStatus.ACTIVE.name
-                }
+        if (exists) {
+            conn.prepareStatement("UPDATE chat_sessions SET start_time = ?, status = ? WHERE session_id = ?").use { stmt ->
+                stmt.setLong(1, event.timestamp)
+                stmt.setString(2, SessionStatus.ACTIVE.name)
+                stmt.setString(3, event.sessionId)
+                stmt.executeUpdate()
+            }
+        } else {
+            conn.prepareStatement("INSERT INTO chat_sessions (session_id, start_time, status) VALUES (?, ?, ?)").use { stmt ->
+                stmt.setString(1, event.sessionId)
+                stmt.setLong(2, event.timestamp)
+                stmt.setString(3, SessionStatus.ACTIVE.name)
+                stmt.executeUpdate()
             }
         }
         publishStatus(event.sessionId, SessionStatus.ACTIVE)
     }
 
     private fun onTurnIdSync(sessionId: String, event: SilentChatEvent.TurnIdSync) {
-        transaction(db) {
-            val exists = SessionEntries.selectAll()
-                .where { SessionEntries.id eq event.turnId }
-                .count() > 0
+        currentTurnId[sessionId] = event.turnId
 
-            if (!exists) {
-                SessionEntries.insert {
-                    it[id] = event.turnId
-                    it[chatSessionId] = sessionId
-                    it[entryType] = "message"
-                    it[startTime] = event.timestamp
-                    it[status] = "streaming"
-                    it[prompt] = lastPrompt.remove(sessionId)
-                }
+        val exists = conn.prepareStatement("SELECT 1 FROM session_entries WHERE id = ?").use { stmt ->
+            stmt.setString(1, event.turnId)
+            stmt.executeQuery().next()
+        }
+
+        if (!exists) {
+            conn.prepareStatement(
+                "INSERT INTO session_entries (id, chat_session_id, entry_type, start_time, status, prompt) VALUES (?, ?, ?, ?, ?, ?)"
+            ).use { stmt ->
+                stmt.setString(1, event.turnId)
+                stmt.setString(2, sessionId)
+                stmt.setString(3, "message")
+                stmt.setLong(4, event.timestamp)
+                stmt.setString(5, "streaming")
+                stmt.setString(6, lastPrompt.remove(sessionId))
+                stmt.executeUpdate()
             }
         }
     }
 
     private fun onReply(sessionId: String, event: SilentChatEvent.Reply) {
-        val turnId = event.parentTurnId ?: return
-        transaction(db) {
-            SessionEntries.update({ SessionEntries.id eq turnId }) {
-                it[response] = event.accumulated
-                it[replyLength] = event.accumulated.length
-            }
+        val turnId = currentTurnId[sessionId] ?: event.parentTurnId ?: return
+        conn.prepareStatement("UPDATE session_entries SET response = ?, reply_length = ? WHERE id = ?").use { stmt ->
+            stmt.setString(1, event.accumulated)
+            stmt.setInt(2, event.accumulated.length)
+            stmt.setString(3, turnId)
+            stmt.executeUpdate()
         }
     }
 
     private fun onToolCallUpdate(event: SilentChatEvent.ToolCallUpdate) {
         val toolCallId = event.toolCallId ?: return
-        transaction(db) {
-            val exists = SessionEntries.selectAll()
-                .where { SessionEntries.id eq toolCallId }
-                .count() > 0
+        val exists = conn.prepareStatement("SELECT 1 FROM session_entries WHERE id = ?").use { stmt ->
+            stmt.setString(1, toolCallId)
+            stmt.executeQuery().next()
+        }
 
-            val inputJson = event.input?.let { gson.toJson(it) }
-            val outputJson = event.result?.let { gson.toJson(it) }
+        val inputJson = event.input?.let { gson.toJson(it) }
+        val outputJson = event.result?.let { gson.toJson(it) }
 
-            if (exists) {
-                SessionEntries.update({ SessionEntries.id eq toolCallId }) {
-                    it[status] = event.status ?: "unknown"
-                    it[error] = event.error
-                    it[durationMs] = event.durationMs
-                    if (outputJson != null) it[output] = outputJson
-                    if (event.status != "running") {
-                        it[endTime] = event.timestamp
-                    }
-                }
-            } else {
-                SessionEntries.insert {
-                    it[id] = toolCallId
-                    it[chatSessionId] = event.sessionId
-                    it[entryType] = "tool_call"
-                    it[startTime] = event.timestamp
-                    it[status] = event.status ?: "running"
-                    it[toolName] = event.toolName
-                    it[toolType] = event.toolType
-                    it[input] = inputJson
-                    it[output] = outputJson
-                    it[error] = event.error
-                }
+        if (exists) {
+            conn.prepareStatement(
+                "UPDATE session_entries SET status = ?, error = ?, duration_ms = ?, output = COALESCE(?, output), end_time = CASE WHEN ? != 'running' THEN ? ELSE end_time END WHERE id = ?"
+            ).use { stmt ->
+                stmt.setString(1, event.status ?: "unknown")
+                stmt.setString(2, event.error)
+                if (event.durationMs != null) stmt.setLong(3, event.durationMs) else stmt.setNull(3, java.sql.Types.BIGINT)
+                stmt.setString(4, outputJson)
+                stmt.setString(5, event.status ?: "unknown")
+                stmt.setLong(6, event.timestamp)
+                stmt.setString(7, toolCallId)
+                stmt.executeUpdate()
+            }
+        } else {
+            conn.prepareStatement(
+                "INSERT INTO session_entries (id, chat_session_id, entry_type, start_time, status, tool_name, tool_type, input, output, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            ).use { stmt ->
+                stmt.setString(1, toolCallId)
+                stmt.setString(2, event.sessionId)
+                stmt.setString(3, "tool_call")
+                stmt.setLong(4, event.timestamp)
+                stmt.setString(5, event.status ?: "running")
+                stmt.setString(6, event.toolName)
+                stmt.setString(7, event.toolType)
+                stmt.setString(8, inputJson)
+                stmt.setString(9, outputJson)
+                stmt.setString(10, event.error)
+                stmt.executeUpdate()
             }
         }
     }
 
     private fun onComplete(sessionId: String, event: SilentChatEvent.Complete) {
-        transaction(db) {
-            ChatSessions.update({ ChatSessions.sessionId eq sessionId }) {
-                it[status] = SessionStatus.COMPLETED.name
-                it[endTime] = event.timestamp
-            }
+        conn.prepareStatement("UPDATE chat_sessions SET status = ?, end_time = ? WHERE session_id = ?").use { stmt ->
+            stmt.setString(1, SessionStatus.COMPLETED.name)
+            stmt.setLong(2, event.timestamp)
+            stmt.setString(3, sessionId)
+            stmt.executeUpdate()
+        }
 
-            SessionEntries.update({
-                (SessionEntries.chatSessionId eq sessionId) and
-                    (SessionEntries.entryType eq "message") and
-                    SessionEntries.endTime.isNull()
-            }) {
-                it[endTime] = event.timestamp
-                it[status] = "complete"
-            }
+        conn.prepareStatement(
+            "UPDATE session_entries SET end_time = ?, status = ? WHERE chat_session_id = ? AND entry_type = 'message' AND end_time IS NULL"
+        ).use { stmt ->
+            stmt.setLong(1, event.timestamp)
+            stmt.setString(2, "complete")
+            stmt.setString(3, sessionId)
+            stmt.executeUpdate()
         }
         publishStatus(sessionId, SessionStatus.COMPLETED)
     }
 
     private fun onError(sessionId: String, event: SilentChatEvent.Error) {
-        transaction(db) {
-            ChatSessions.update({ ChatSessions.sessionId eq sessionId }) {
-                it[status] = SessionStatus.ERROR.name
-                it[endTime] = event.timestamp
-            }
+        conn.prepareStatement("UPDATE chat_sessions SET status = ?, end_time = ? WHERE session_id = ?").use { stmt ->
+            stmt.setString(1, SessionStatus.ERROR.name)
+            stmt.setLong(2, event.timestamp)
+            stmt.setString(3, sessionId)
+            stmt.executeUpdate()
         }
         publishStatus(sessionId, SessionStatus.ERROR)
     }
 
     private fun onCancel(sessionId: String) {
         val now = System.currentTimeMillis()
-        transaction(db) {
-            ChatSessions.update({ ChatSessions.sessionId eq sessionId }) {
-                it[status] = SessionStatus.CANCELLED.name
-                it[endTime] = now
-            }
+        conn.prepareStatement("UPDATE chat_sessions SET status = ?, end_time = ? WHERE session_id = ?").use { stmt ->
+            stmt.setString(1, SessionStatus.CANCELLED.name)
+            stmt.setLong(2, now)
+            stmt.setString(3, sessionId)
+            stmt.executeUpdate()
         }
         publishStatus(sessionId, SessionStatus.CANCELLED)
     }
