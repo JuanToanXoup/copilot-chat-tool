@@ -136,42 +136,27 @@ export default function App() {
       }
 
       case 'Complete':
-        setIsLoading(false)
-        if (currentAssistantId.current) {
-          const fullReply = payload.fullReply as string
-          const aid = currentAssistantId.current
-          currentAssistantId.current = null
-          setMessages(prev => prev.map(m =>
-            m.id === aid
-              ? { ...m, content: fullReply || m.content, isStreaming: false, sessionId: currentSessionId }
-              : m
-          ))
-        }
-        break
-
       case 'Error':
+      case 'Cancel': {
         setIsLoading(false)
-        if (currentAssistantId.current) {
-          setMessages(prev => prev.map(m =>
-            m.id === currentAssistantId.current
-              ? { ...m, content: `**Error:** ${payload.message}`, isStreaming: false }
-              : m
-          ))
-          currentAssistantId.current = null
-        }
-        break
+        const finishedId = currentAssistantId.current
+        currentAssistantId.current = null
 
-      case 'Cancel':
-        setIsLoading(false)
-        if (currentAssistantId.current) {
-          setMessages(prev => prev.map(m =>
-            m.id === currentAssistantId.current
-              ? { ...m, isStreaming: false }
-              : m
-          ))
-          currentAssistantId.current = null
-        }
+        // Build override for the active assistant message (if any)
+        setMessages(prev => prev.map(m => {
+          if (!m.isStreaming) return m
+          if (m.id !== finishedId) return { ...m, isStreaming: false }
+          if (event === 'Complete') {
+            const fullReply = payload.fullReply as string
+            return { ...m, content: fullReply || m.content, isStreaming: false, sessionId: currentSessionId }
+          }
+          if (event === 'Error') {
+            return { ...m, content: `**Error:** ${payload.message}`, isStreaming: false }
+          }
+          return { ...m, isStreaming: false }
+        }))
         break
+      }
     }
   }
 
@@ -183,12 +168,19 @@ export default function App() {
     const text = input.trim()
     if (!text || isLoading) return
 
-    setMessages(prev => [...prev, {
+    const userMsg: ChatMessage = {
       id: nextId(),
       role: 'user',
       content: text,
       timestamp: Date.now(),
-    }])
+    }
+    if (newSession) {
+      setMessages([userMsg])
+      setToolCalls([])
+      setSteps([])
+    } else {
+      setMessages(prev => [...prev, userMsg])
+    }
     setInput('')
 
     sendMessage({
