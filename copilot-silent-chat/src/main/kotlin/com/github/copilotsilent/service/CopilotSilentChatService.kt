@@ -135,11 +135,7 @@ class CopilotSilentChatService(
                 // Switch mode if requested — this sets the mode on ChatModeService
                 // which CopilotAgentSessionController.sendMessage() reads via
                 // chatModeService.getCurrentMode().getValue()
-                if (mode != null) {
-                    withContext(Dispatchers.EDT) {
-                        chatModeService.switchToMode(mode)
-                    }
-                }
+                mode?.let{ switchMode(it) }
 
                 // Get or create session — mirrors CopilotChatServiceImpl.getOrCreateSession()
                 val sid = sessionId

@@ -214,6 +214,7 @@ class SessionStore(private val project: Project) {
                 val entryType = rs.getString("entry_type")
                 val id = rs.getString("id")
                 val chatSessionId = rs.getString("chat_session_id")
+                val turnId = rs.getString("turn_id")
                 val startTime = rs.getLong("start_time")
                 val endTime = rs.getLong("end_time").takeIf { !rs.wasNull() }
                 val status = rs.getString("status")
@@ -222,6 +223,7 @@ class SessionStore(private val project: Project) {
                     "message" -> result.add(SessionEntry.Message(
                         id = id,
                         chatSessionId = chatSessionId,
+                        turnId = turnId,
                         startTime = startTime,
                         endTime = endTime,
                         status = status,
@@ -232,15 +234,29 @@ class SessionStore(private val project: Project) {
                     "tool_call" -> result.add(SessionEntry.ToolCall(
                         id = id,
                         chatSessionId = chatSessionId,
+                        turnId = turnId,
                         startTime = startTime,
                         endTime = endTime,
                         status = status,
                         toolName = rs.getString("tool_name"),
                         toolType = rs.getString("tool_type"),
                         input = rs.getString("input"),
+                        inputMessage = rs.getString("input_message"),
                         output = rs.getString("output"),
                         error = rs.getString("error"),
+                        progressMessage = rs.getString("progress_message"),
+                        roundId = rs.getInt("round_id").takeIf { !rs.wasNull() },
                         durationFromAgent = rs.getLong("duration_ms").takeIf { !rs.wasNull() },
+                    ))
+                    "step" -> result.add(SessionEntry.Step(
+                        id = id,
+                        chatSessionId = chatSessionId,
+                        turnId = turnId,
+                        startTime = startTime,
+                        endTime = endTime,
+                        status = status,
+                        title = rs.getString("title"),
+                        description = rs.getString("description"),
                     ))
                 }
             }
@@ -256,6 +272,7 @@ class SessionStore(private val project: Project) {
             is SilentChatEvent.TurnIdSync -> onTurnIdSync(sessionId, event)
             is SilentChatEvent.Reply -> onReply(sessionId, event)
             is SilentChatEvent.ToolCallUpdate -> onToolCallUpdate(event)
+            is SilentChatEvent.Steps -> onSteps(sessionId, event)
             is SilentChatEvent.Complete -> onComplete(sessionId, event)
             is SilentChatEvent.Error -> onError(sessionId, event)
             is SilentChatEvent.Cancel -> onCancel(sessionId, event)
@@ -302,14 +319,15 @@ class SessionStore(private val project: Project) {
 
         if (!exists) {
             db().prepareStatement(
-                "INSERT INTO session_entries (id, chat_session_id, entry_type, start_time, status, prompt) VALUES (?, ?, ?, ?, ?, ?)"
+                "INSERT INTO session_entries (id, chat_session_id, entry_type, turn_id, start_time, status, prompt) VALUES (?, ?, ?, ?, ?, ?, ?)"
             ).use { stmt ->
                 stmt.setString(1, event.turnId)
                 stmt.setString(2, sessionId)
                 stmt.setString(3, "message")
-                stmt.setLong(4, event.timestamp)
-                stmt.setString(5, "streaming")
-                stmt.setString(6, lastPrompt.remove(sessionId))
+                stmt.setString(4, event.turnId)
+                stmt.setLong(5, event.timestamp)
+                stmt.setString(6, "streaming")
+                stmt.setString(7, lastPrompt.remove(sessionId))
                 stmt.executeUpdate()
             }
         }
@@ -334,35 +352,85 @@ class SessionStore(private val project: Project) {
 
         val inputJson = event.input?.let { gson.toJson(it) }
         val outputJson = event.result?.let { gson.toJson(it) }
+        val turnId = event.turnId ?: currentTurnId[event.sessionId]
 
         if (exists) {
             db().prepareStatement(
-                "UPDATE session_entries SET status = ?, error = ?, duration_ms = ?, output = COALESCE(?, output), end_time = CASE WHEN ? != 'running' THEN ? ELSE end_time END WHERE id = ?"
+                """UPDATE session_entries SET status = ?, error = ?, duration_ms = ?,
+                   output = COALESCE(?, output), progress_message = COALESCE(?, progress_message),
+                   input_message = COALESCE(?, input_message),
+                   end_time = CASE WHEN ? != 'running' THEN ? ELSE end_time END WHERE id = ?"""
             ).use { stmt ->
                 stmt.setString(1, event.status ?: "unknown")
                 stmt.setString(2, event.error)
                 if (event.durationMs != null) stmt.setLong(3, event.durationMs) else stmt.setNull(3, java.sql.Types.BIGINT)
                 stmt.setString(4, outputJson)
-                stmt.setString(5, event.status ?: "unknown")
-                stmt.setLong(6, event.timestamp)
-                stmt.setString(7, toolCallId)
+                stmt.setString(5, event.progressMessage)
+                stmt.setString(6, event.inputMessage)
+                stmt.setString(7, event.status ?: "unknown")
+                stmt.setLong(8, event.timestamp)
+                stmt.setString(9, toolCallId)
                 stmt.executeUpdate()
             }
         } else {
             db().prepareStatement(
-                "INSERT INTO session_entries (id, chat_session_id, entry_type, start_time, status, tool_name, tool_type, input, output, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                """INSERT INTO session_entries (id, chat_session_id, entry_type, turn_id, start_time, status,
+                   tool_name, tool_type, input, input_message, output, error, progress_message, round_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
             ).use { stmt ->
                 stmt.setString(1, toolCallId)
                 stmt.setString(2, event.sessionId)
                 stmt.setString(3, "tool_call")
-                stmt.setLong(4, event.timestamp)
-                stmt.setString(5, event.status ?: "running")
-                stmt.setString(6, event.toolName)
-                stmt.setString(7, event.toolType)
-                stmt.setString(8, inputJson)
-                stmt.setString(9, outputJson)
-                stmt.setString(10, event.error)
+                stmt.setString(4, turnId)
+                stmt.setLong(5, event.timestamp)
+                stmt.setString(6, event.status ?: "running")
+                stmt.setString(7, event.toolName)
+                stmt.setString(8, event.toolType)
+                stmt.setString(9, inputJson)
+                stmt.setString(10, event.inputMessage)
+                stmt.setString(11, outputJson)
+                stmt.setString(12, event.error)
+                stmt.setString(13, event.progressMessage)
+                stmt.setInt(14, event.roundId)
                 stmt.executeUpdate()
+            }
+        }
+    }
+
+    private fun onSteps(sessionId: String, event: SilentChatEvent.Steps) {
+        val turnId = currentTurnId[sessionId] ?: event.parentTurnId
+        for (step in event.steps) {
+            val stepId = step.id ?: continue
+            val exists = db().prepareStatement("SELECT 1 FROM session_entries WHERE id = ?").use { stmt ->
+                stmt.setString(1, stepId)
+                stmt.executeQuery().next()
+            }
+
+            if (exists) {
+                db().prepareStatement(
+                    "UPDATE session_entries SET status = ?, title = COALESCE(?, title), description = COALESCE(?, description) WHERE id = ?"
+                ).use { stmt ->
+                    stmt.setString(1, step.status ?: "running")
+                    stmt.setString(2, step.title)
+                    stmt.setString(3, step.description)
+                    stmt.setString(4, stepId)
+                    stmt.executeUpdate()
+                }
+            } else {
+                db().prepareStatement(
+                    """INSERT INTO session_entries (id, chat_session_id, entry_type, turn_id, start_time, status, title, description)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)"""
+                ).use { stmt ->
+                    stmt.setString(1, stepId)
+                    stmt.setString(2, sessionId)
+                    stmt.setString(3, "step")
+                    stmt.setString(4, turnId)
+                    stmt.setLong(5, event.timestamp)
+                    stmt.setString(6, step.status ?: "running")
+                    stmt.setString(7, step.title)
+                    stmt.setString(8, step.description)
+                    stmt.executeUpdate()
+                }
             }
         }
     }

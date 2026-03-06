@@ -86,6 +86,11 @@ class WebViewBridge(
         panel.pushData("modes", gson.toJson(data))
     }
 
+    fun pushLog(level: String, tag: String, message: String) {
+        val data = mapOf("level" to level, "tag" to tag, "message" to message)
+        panel.pushData("log", gson.toJson(data))
+    }
+
     /**
      * Handles messages from the React UI (JS -> Kotlin).
      */
@@ -101,6 +106,7 @@ class WebViewBridge(
                 "getModes" -> handleGetModes()
                 "getSessions" -> handleGetSessions()
                 "getPlaybooks" -> handleGetPlaybooks()
+                "getSession" -> handleGetSession(json)
                 else -> log.warn("Unknown bridge command: $command")
             }
         } catch (e: Exception) {
@@ -185,10 +191,26 @@ class WebViewBridge(
         panel.pushData("playbooks", gson.toJson(playbooks))
     }
 
+    private fun handleGetSession(json: com.google.gson.JsonObject) {
+        val sessionId = json.get("sessionId")?.asString ?: return
+        val session = sessionStore.getSession(sessionId) ?: return
+        val data = mapOf(
+            "sessionId" to session.sessionId,
+            "playbookId" to session.playbookId,
+            "startTime" to session.startTime,
+            "endTime" to session.endTime,
+            "status" to session.status.name,
+            "durationMs" to session.durationMs,
+            "entries" to session.entries.map { entryToMap(it) },
+        )
+        panel.pushData("session", gson.toJson(data))
+    }
+
     private fun entryToMap(entry: SessionEntry): Map<String, Any?> = when (entry) {
         is SessionEntry.Message -> mapOf(
             "id" to entry.id,
             "entryType" to "message",
+            "turnId" to entry.turnId,
             "startTime" to entry.startTime,
             "endTime" to entry.endTime,
             "status" to entry.status,
@@ -200,6 +222,7 @@ class WebViewBridge(
         is SessionEntry.ToolCall -> mapOf(
             "id" to entry.id,
             "entryType" to "tool_call",
+            "turnId" to entry.turnId,
             "startTime" to entry.startTime,
             "endTime" to entry.endTime,
             "status" to entry.status,
@@ -207,8 +230,22 @@ class WebViewBridge(
             "toolName" to entry.toolName,
             "toolType" to entry.toolType,
             "input" to entry.input,
+            "inputMessage" to entry.inputMessage,
             "output" to entry.output,
             "error" to entry.error,
+            "progressMessage" to entry.progressMessage,
+            "roundId" to entry.roundId,
+        )
+        is SessionEntry.Step -> mapOf(
+            "id" to entry.id,
+            "entryType" to "step",
+            "turnId" to entry.turnId,
+            "startTime" to entry.startTime,
+            "endTime" to entry.endTime,
+            "status" to entry.status,
+            "durationMs" to entry.durationMs,
+            "title" to entry.title,
+            "description" to entry.description,
         )
     }
 
@@ -217,6 +254,7 @@ class WebViewBridge(
      */
     private fun sendEventToJs(event: SilentChatEvent) {
         log.info("sendEventToJs: ${event::class.simpleName}")
+        pushLog("INFO", "Event", formatEventLog(event))
         val data = when (event) {
             is SilentChatEvent.SessionReady -> mapOf("event" to "SessionReady", "sessionId" to event.sessionId)
             is SilentChatEvent.Begin -> mapOf("event" to "Begin")
@@ -281,5 +319,27 @@ class WebViewBridge(
         }
         val withTimestamp = data + ("timestamp" to event.timestamp)
         panel.pushData("event", gson.toJson(withTimestamp))
+    }
+
+    private fun formatEventLog(event: SilentChatEvent): String = when (event) {
+        is SilentChatEvent.SessionReady -> "SessionReady sessionId=${event.sessionId}"
+        is SilentChatEvent.Begin -> "Begin"
+        is SilentChatEvent.TurnIdSync -> "TurnIdSync turnId=${event.turnId} parentTurnId=${event.parentTurnId}"
+        is SilentChatEvent.Reply -> "Reply delta=${event.delta.length}ch accumulated=${event.accumulated.length}ch"
+        is SilentChatEvent.Steps -> "Steps count=${event.steps.size} [${event.steps.joinToString { "${it.id}:${it.title}:${it.status}" }}]"
+        is SilentChatEvent.ToolCallUpdate -> "ToolCall ${event.toolName} [${event.toolType}] status=${event.status} id=${event.toolCallId}${event.durationMs?.let { " ${it}ms" } ?: ""}"
+        is SilentChatEvent.EditAgentRound -> "EditAgentRound roundId=${event.round.roundId} toolCalls=${event.round.toolCalls?.size ?: 0} reply=${event.round.reply?.length ?: 0}ch"
+        is SilentChatEvent.Complete -> "Complete replyLength=${event.fullReply.length}ch"
+        is SilentChatEvent.Error -> "Error code=${event.code} message=${event.message}"
+        is SilentChatEvent.Cancel -> "Cancel"
+        is SilentChatEvent.References -> "References count=${event.references.size}"
+        is SilentChatEvent.ConfirmationRequest -> "ConfirmationRequest title=${event.request.title}"
+        is SilentChatEvent.Notifications -> "Notifications count=${event.notifications.size}"
+        is SilentChatEvent.UpdatedDocuments -> "UpdatedDocuments count=${event.documents.size}"
+        is SilentChatEvent.SuggestedTitle -> "SuggestedTitle: ${event.title}"
+        is SilentChatEvent.Filter -> "Filter: ${event.message}"
+        is SilentChatEvent.Unauthorized -> "Unauthorized"
+        is SilentChatEvent.ModelInformation -> "ModelInfo model=${event.modelName} provider=${event.modelProviderName}"
+        is SilentChatEvent.ConversationIdSync -> "ConversationIdSync ${event.conversationId}"
     }
 }

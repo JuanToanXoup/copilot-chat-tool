@@ -4,19 +4,27 @@ import MarkdownRenderer from './MarkdownRenderer'
 
 interface SessionEntryData {
   id: string
-  entryType: 'message' | 'tool_call'
+  entryType: 'message' | 'tool_call' | 'step'
+  turnId?: string
   startTime: number
   endTime?: number
   status: string
   durationMs?: number
+  // message fields
   prompt?: string
   response?: string
   replyLength?: number
+  // tool_call fields
   toolName?: string
   toolType?: string
   input?: string
+  inputMessage?: string
   output?: string
   error?: string
+  progressMessage?: string
+  // step fields
+  title?: string
+  description?: string
 }
 
 interface ChatSessionData {
@@ -90,7 +98,11 @@ function Collapsible({ label, children, defaultOpen = false }: { label: string; 
   )
 }
 
-export default function SessionsView() {
+interface SessionsViewProps {
+  onOpenSession?: (sessionId: string) => void
+}
+
+export default function SessionsView({ onOpenSession }: SessionsViewProps) {
   const [sessions, setSessions] = useState<ChatSessionData[]>([])
   const [playbooks, setPlaybooks] = useState<PlaybookRunData[]>([])
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -147,10 +159,53 @@ export default function SessionsView() {
     )
   }
 
-  function renderEntry(e: SessionEntryData) {
-    const isMsg = e.entryType === 'message'
+  interface Turn {
+    message: SessionEntryData
+    children: SessionEntryData[]  // tool_calls and steps
+  }
+
+  /** Group entries into turns: each message entry + its trailing tool_call/step entries. */
+  function groupTurns(entries: SessionEntryData[]): Turn[] {
+    const turns: Turn[] = []
+    let current: Turn | null = null
+    for (const e of entries) {
+      if (e.entryType === 'message') {
+        if (current) turns.push(current)
+        current = { message: e, children: [] }
+      } else if (current) {
+        current.children.push(e)
+      }
+    }
+    if (current) turns.push(current)
+    return turns
+  }
+
+  function renderChildEntry(e: SessionEntryData) {
+    if (e.entryType === 'step') return renderStepEntry(e)
+    return renderToolCallEntry(e)
+  }
+
+  function renderStepEntry(e: SessionEntryData) {
     const isOpen = expanded.has(e.id)
-    const label = `${statusDot(e.status)} ${isMsg ? 'Message' : (e.toolName || 'Tool')}${e.toolType ? ` [${e.toolType}]` : ''} — ${dur(e.durationMs)} — ${fmtTime(e.startTime)}${e.endTime ? ' → ' + fmtTime(e.endTime) : ''}`
+    const label = `${statusDot(e.status)} ${e.title || 'Step'} — ${fmtTime(e.startTime)}`
+    return (
+      <div key={e.id} className="st-entry">
+        <div className={`st-entry-row ${statusClass(e.status)}`} onClick={e.description ? () => toggle(e.id) : undefined}>
+          {e.description && <span className="st-arrow">{isOpen ? '▾' : '▸'}</span>}
+          <span>{label}</span>
+        </div>
+        {isOpen && e.description && (
+          <div className="st-entry-detail">
+            <pre className="st-field-value">{e.description}</pre>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  function renderToolCallEntry(e: SessionEntryData) {
+    const isOpen = expanded.has(e.id)
+    const label = `${statusDot(e.status)} ${e.toolName || 'Tool'}${e.toolType ? ` [${e.toolType}]` : ''} — ${dur(e.durationMs)} — ${fmtTime(e.startTime)}${e.endTime ? ' → ' + fmtTime(e.endTime) : ''}`
     return (
       <div key={e.id} className="st-entry">
         <div className={`st-entry-row ${statusClass(e.status)}`} onClick={() => toggle(e.id)}>
@@ -159,18 +214,51 @@ export default function SessionsView() {
         </div>
         {isOpen && (
           <div className="st-entry-detail">
-            {isMsg ? (
-              <>
-                {e.prompt && renderField('Prompt', e.prompt, 'pre')}
-                {e.response && renderField('Response', e.response, 'md')}
-              </>
-            ) : (
-              <>
-                {e.input && renderField('Input', e.input, 'pre')}
-                {e.output && renderField('Output', e.output, 'pre')}
-                {e.error && renderField('Error', e.error, 'err')}
-              </>
-            )}
+            {e.inputMessage && <div className="st-inline-field"><span className="st-field-label-inline">Message:</span> {e.inputMessage}</div>}
+            {e.input && renderField('Input', e.input, 'pre')}
+            {e.output && renderField('Output', e.output, 'pre')}
+            {e.progressMessage && <div className="st-inline-field"><span className="st-field-label-inline">Progress:</span> {e.progressMessage}</div>}
+            {e.error && renderField('Error', e.error, 'err')}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  function renderCopilotEntry(e: SessionEntryData) {
+    const copilotId = e.id + '-copilot'
+    const isOpen = expanded.has(copilotId)
+    const label = `${statusDot(e.status)} Copilot — ${dur(e.durationMs)}`
+    return (
+      <div className="st-entry">
+        <div className={`st-entry-row ${statusClass(e.status)}`} onClick={() => toggle(copilotId)}>
+          <span className="st-arrow">{isOpen ? '▾' : '▸'}</span>
+          <span>{label}</span>
+        </div>
+        {isOpen && (
+          <div className="st-entry-detail">
+            {e.response && renderField('Output', e.response, 'md')}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  function renderTurn(turn: Turn) {
+    const e = turn.message
+    const isOpen = expanded.has(e.id)
+    const label = `${statusDot(e.status)} Prompt — ${dur(e.durationMs)} — ${fmtTime(e.startTime)}${e.endTime ? ' → ' + fmtTime(e.endTime) : ''}`
+    return (
+      <div key={e.id} className="st-entry">
+        <div className={`st-entry-row ${statusClass(e.status)}`} onClick={() => toggle(e.id)}>
+          <span className="st-arrow">{isOpen ? '▾' : '▸'}</span>
+          <span>{label}</span>
+        </div>
+        {isOpen && (
+          <div className="st-entry-detail">
+            {e.prompt && <div className="st-prompt-text">{e.prompt}</div>}
+            {turn.children.map(renderChildEntry)}
+            {e.response && renderCopilotEntry(e)}
           </div>
         )}
       </div>
@@ -187,13 +275,16 @@ export default function SessionsView() {
         <div className={`st-row ${statusClass(s.status)}`} onClick={() => toggle(s.sessionId)}>
           <span className="st-arrow">{isOpen ? '▾' : '▸'}</span>
           <span>{label}</span>
+          {onOpenSession && (
+            <button className="st-open-btn" onClick={(e) => { e.stopPropagation(); onOpenSession(s.sessionId) }}>Open</button>
+          )}
         </div>
         {isOpen && (
           <div className="st-session-body">
             {s.playbookId && <div className="st-inline-field"><span className="st-field-label-inline">Playbook:</span> {s.playbookId}</div>}
             {s.entries.length === 0
               ? <div className="st-no-entries">No entries</div>
-              : s.entries.map(renderEntry)}
+              : groupTurns(s.entries).map(renderTurn)}
           </div>
         )}
       </div>

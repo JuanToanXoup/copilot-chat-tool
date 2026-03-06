@@ -40,6 +40,7 @@ enum class SessionStatus {
 sealed class SessionEntry {
     abstract val id: String
     abstract val chatSessionId: String
+    abstract val turnId: String?
     abstract val startTime: Long
     abstract val endTime: Long?
     abstract val status: String
@@ -50,6 +51,7 @@ sealed class SessionEntry {
     data class Message(
         override val id: String,
         override val chatSessionId: String,
+        override val turnId: String? = null,
         override val startTime: Long,
         override var endTime: Long? = null,
         override var status: String = "streaming",
@@ -61,14 +63,29 @@ sealed class SessionEntry {
     data class ToolCall(
         override val id: String,
         override val chatSessionId: String,
+        override val turnId: String? = null,
         override val startTime: Long,
         override var endTime: Long? = null,
         override var status: String = "running",
         val toolName: String?,
         val toolType: String?,
         var input: String? = null,
+        var inputMessage: String? = null,
         var output: String? = null,
         var error: String? = null,
+        var progressMessage: String? = null,
+        var roundId: Int? = null,
         var durationFromAgent: Long? = null,
+    ) : SessionEntry()
+
+    data class Step(
+        override val id: String,
+        override val chatSessionId: String,
+        override val turnId: String? = null,
+        override val startTime: Long,
+        override var endTime: Long? = null,
+        override var status: String = "running",
+        val title: String?,
+        val description: String?,
     ) : SessionEntry()
 }

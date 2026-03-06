@@ -76,6 +76,11 @@ export function requestPlaybooks(): void {
   postMessage({ command: 'getPlaybooks' })
 }
 
+/** Request a single session by ID for replay */
+export function requestSession(sessionId: string): void {
+  postMessage({ command: 'getSession', sessionId })
+}
+
 /** Send a chat message */
 export function sendMessage(opts: {
   message: string

@@ -83,6 +83,7 @@ object DatabaseManager {
                     id TEXT PRIMARY KEY,
                     chat_session_id TEXT NOT NULL REFERENCES chat_sessions(session_id),
                     entry_type TEXT NOT NULL,
+                    turn_id TEXT,
                     start_time INTEGER NOT NULL,
                     end_time INTEGER,
                     status TEXT NOT NULL DEFAULT 'running',
@@ -93,10 +94,32 @@ object DatabaseManager {
                     tool_name TEXT,
                     tool_type TEXT,
                     input TEXT,
+                    input_message TEXT,
                     output TEXT,
-                    error TEXT
+                    error TEXT,
+                    progress_message TEXT,
+                    round_id INTEGER,
+                    title TEXT,
+                    description TEXT
                 )
             """)
+
+            // Migrate existing databases — add columns that may be missing
+            val migrationColumns = listOf(
+                "turn_id TEXT",
+                "input_message TEXT",
+                "progress_message TEXT",
+                "round_id INTEGER",
+                "title TEXT",
+                "description TEXT",
+            )
+            for (col in migrationColumns) {
+                try {
+                    stmt.executeUpdate("ALTER TABLE session_entries ADD COLUMN $col")
+                } catch (_: Exception) {
+                    // Column already exists — expected for new databases
+                }
+            }
         }
 
         log.info("sessions.db initialized successfully")
