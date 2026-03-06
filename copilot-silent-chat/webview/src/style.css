@@ -439,6 +439,16 @@ body {
   cursor: not-allowed;
 }
 
+.input-area button.stop {
+  background: #d32f2f;
+  opacity: 1;
+  cursor: pointer;
+}
+
+.input-area button.stop:hover {
+  background: #e53935;
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;

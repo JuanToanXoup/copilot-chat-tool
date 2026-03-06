@@ -5,12 +5,16 @@ import com.github.copilot.chat.conversation.agent.rpc.command.CopilotModel
 import com.github.copilot.model.CompositeModelService
 import com.github.copilotsilent.model.ModelsUpdateListener
 import com.github.copilotsilent.model.ModesUpdateListener
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
@@ -23,8 +27,13 @@ import kotlinx.coroutines.launch
 @Service(Service.Level.PROJECT)
 class StateFlowBroadcaster(
     private val project: Project,
-    private val coroutineScope: CoroutineScope,
-) {
+) : Disposable {
+    private val coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    override fun dispose() {
+        coroutineScope.cancel()
+    }
+
     private val log = Logger.getInstance(StateFlowBroadcaster::class.java)
 
     private val chatModeService: ChatModeService

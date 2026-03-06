@@ -5,12 +5,16 @@ import com.github.copilot.chat.conversation.agent.rpc.command.CopilotModel
 import com.github.copilotsilent.model.SilentChatEvent
 import com.github.copilotsilent.model.SilentChatListener
 import com.github.copilotsilent.service.CopilotSilentChatService
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicReference
 
@@ -23,8 +27,12 @@ import java.util.concurrent.atomic.AtomicReference
 @Service(Service.Level.PROJECT)
 class ChatOrchestrator(
     private val project: Project,
-    private val coroutineScope: CoroutineScope
-) {
+) : Disposable {
+    private val coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    override fun dispose() {
+        coroutineScope.cancel()
+    }
     private val log = Logger.getInstance(ChatOrchestrator::class.java)
 
     private val service: CopilotSilentChatService

@@ -95,6 +95,7 @@ class WebViewBridge(
 
             when (command) {
                 "sendMessage" -> handleSendMessage(json)
+                "stopGeneration" -> service.stopGeneration()
                 "getModels" -> handleGetModels()
                 "getModes" -> handleGetModes()
                 else -> log.warn("Unknown bridge command: $command")

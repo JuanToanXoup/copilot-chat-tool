@@ -16,12 +16,15 @@ import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -36,8 +39,13 @@ import kotlinx.coroutines.withContext
 @Service(Service.Level.PROJECT)
 class CopilotSilentChatService(
     private val project: Project,
-    private val coroutineScope: CoroutineScope
-) {
+) : Disposable {
+    private val coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    override fun dispose() {
+        coroutineScope.cancel()
+    }
+
     private val log = Logger.getInstance(CopilotSilentChatService::class.java)
     private val activeSessions = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
@@ -81,6 +89,22 @@ class CopilotSilentChatService(
     }
 
     /**
+     * Stops the current in-progress generation.
+     * Invokes the controller's private onCancel() via reflection — Copilot
+     * does not expose a public cancel API.
+     */
+    fun stopGeneration() {
+        try {
+            val controller = sessionManager.getCurrentSessionController()
+            val method = controller::class.java.getDeclaredMethod("onCancel")
+            method.isAccessible = true
+            method.invoke(controller)
+        } catch (e: Exception) {
+            log.warn("Failed to stop generation", e)
+        }
+    }
+
+    /**
      * Send a message through the real Copilot pipeline without opening the tool window.
      *
      * Mirrors CopilotChatServiceImpl.query() but skips showChatToolWindow().
@@ -102,7 +126,7 @@ class CopilotSilentChatService(
         message: String,
         sessionId: String? = null,
         model: CopilotModel? = null,
-        mode: ChatMode? = null,
+        mode: ChatMode? = ChatModeService.BuiltInChatModes.Agent,
         newSession: Boolean = false,
         silent: Boolean = true,
     ) {

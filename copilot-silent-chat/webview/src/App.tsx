@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { subscribe, sendMessage, requestModels, requestModes, type JcefDataEvent } from './bridge'
+import { subscribe, sendMessage, stopGeneration, requestModels, requestModes, type JcefDataEvent } from './bridge'
 import type { ChatMessage, ToolCall, StepInfo, ModelOption, ModeOption } from './types'
 import MarkdownRenderer from './MarkdownRenderer'
 import './style.css'
@@ -160,7 +160,23 @@ export default function App() {
           currentAssistantId.current = null
         }
         break
+
+      case 'Cancel':
+        setIsLoading(false)
+        if (currentAssistantId.current) {
+          setMessages(prev => prev.map(m =>
+            m.id === currentAssistantId.current
+              ? { ...m, isStreaming: false }
+              : m
+          ))
+          currentAssistantId.current = null
+        }
+        break
     }
+  }
+
+  function handleStop() {
+    stopGeneration()
   }
 
   function handleSend() {
@@ -320,8 +336,12 @@ export default function App() {
           rows={2}
           disabled={isLoading}
         />
-        <button onClick={handleSend} disabled={isLoading || !input.trim()}>
-          {isLoading ? '…' : 'Send'}
+        <button
+          onClick={isLoading ? handleStop : handleSend}
+          disabled={!isLoading && !input.trim()}
+          className={isLoading ? 'stop' : ''}
+        >
+          {isLoading ? 'Stop' : 'Send'}
         </button>
       </div>
     </div>

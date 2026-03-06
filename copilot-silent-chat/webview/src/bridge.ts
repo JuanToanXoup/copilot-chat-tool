@@ -61,6 +61,11 @@ export function requestModes(): void {
   postMessage({ command: 'getModes' })
 }
 
+/** Stop the current generation */
+export function stopGeneration(): void {
+  postMessage({ command: 'stopGeneration' })
+}
+
 /** Send a chat message */
 export function sendMessage(opts: {
   message: string

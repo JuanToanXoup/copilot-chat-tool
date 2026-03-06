@@ -28,9 +28,22 @@ dependencies {
 
     // SQLite + Exposed ORM for session persistence
     implementation("org.xerial:sqlite-jdbc:3.47.2.0")
-    implementation("org.jetbrains.exposed:exposed-core:$exposedVersion")
-    implementation("org.jetbrains.exposed:exposed-jdbc:$exposedVersion")
-    implementation("org.jetbrains.exposed:exposed-dao:$exposedVersion")
+    implementation("org.jetbrains.exposed:exposed-core:$exposedVersion") {
+        exclude(group = "org.jetbrains.kotlin")
+        exclude(group = "org.jetbrains.kotlinx")
+    }
+    implementation("org.jetbrains.exposed:exposed-jdbc:$exposedVersion") {
+        exclude(group = "org.jetbrains.kotlin")
+        exclude(group = "org.jetbrains.kotlinx")
+    }
+    implementation("org.jetbrains.exposed:exposed-dao:$exposedVersion") {
+        exclude(group = "org.jetbrains.kotlin")
+        exclude(group = "org.jetbrains.kotlinx")
+    }
+
+    // Kotlin stdlib and coroutines are provided by IntelliJ — do not bundle
+    compileOnly(kotlin("stdlib"))
+    compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
 }
 
 kotlin {
