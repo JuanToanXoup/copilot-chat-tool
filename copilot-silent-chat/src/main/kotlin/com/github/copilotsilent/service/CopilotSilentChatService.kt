@@ -11,6 +11,7 @@ import com.github.copilot.chat.input.ModelId
 import com.github.copilot.chat.window.ShowChatToolWindowsListener
 import com.github.copilot.model.CompositeModelService
 import com.github.copilotsilent.model.SilentChatEvent
+import com.github.copilotsilent.model.SilentChatNotifier
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.application.ApplicationManager
@@ -93,6 +94,10 @@ class CopilotSilentChatService(
      * @param silent if true (default), does NOT open the tool window; if false, opens it
      *               exactly like CopilotChatServiceImpl does via ShowChatToolWindowsListener
      */
+    private fun publish(sid: String, event: SilentChatEvent) {
+        project.messageBus.syncPublisher(SilentChatNotifier.TOPIC).onEvent(sid, event)
+    }
+
     fun sendMessage(
         message: String,
         sessionId: String? = null,
@@ -100,7 +105,6 @@ class CopilotSilentChatService(
         mode: ChatMode? = null,
         newSession: Boolean = false,
         silent: Boolean = true,
-        onEvent: ((SilentChatEvent) -> Unit)? = null
     ) {
         coroutineScope.launch {
             try {
@@ -131,7 +135,7 @@ class CopilotSilentChatService(
                 // Reject if another call is already using this session
                 if (!activeSessions.add(sid)) {
                     log.warn("Session $sid is already in use by another parallel call")
-                    onEvent?.invoke(SilentChatEvent.Error("Session $sid is already in use"))
+                    publish(sid, SilentChatEvent.Error("Session $sid is already in use"))
                     return@launch
                 }
 
@@ -139,7 +143,7 @@ class CopilotSilentChatService(
                     // Activate session — identical to CopilotChatServiceImpl
                     sessionManager.activateSession(sid)
 
-                    onEvent?.invoke(SilentChatEvent.SessionReady(sid))
+                    publish(sid, SilentChatEvent.SessionReady(sid))
 
                     // Source: CopilotChatServiceImpl wraps sendMessage in withContext(Dispatchers.EDT)
                     // This is required because CopilotAgentSessionController.sendMessage() accesses
@@ -164,7 +168,7 @@ class CopilotSilentChatService(
 
                         // Create progress handler — same as CopilotChatServiceImpl.ProgressHandler
                         // but extends AbstractCopilotAgentConversationProgressHandler to get ALL events
-                        val handler = SilentProgressHandler(sid, onEvent)
+                        val handler = SilentProgressHandler(project, sid)
 
                         // Call the real sendMessage — identical to CopilotChatServiceImpl
                         // This goes through CopilotAgentSessionController.sendMessage()
@@ -184,7 +188,7 @@ class CopilotSilentChatService(
 
             } catch (e: Exception) {
                 log.warn("Failed to send message", e)
-                onEvent?.invoke(SilentChatEvent.Error(e.message ?: "Unknown error"))
+                publish("unknown", SilentChatEvent.Error(e.message ?: "Unknown error"))
             }
         }
     }

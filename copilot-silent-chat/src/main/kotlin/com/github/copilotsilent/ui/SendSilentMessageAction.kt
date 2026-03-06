@@ -3,6 +3,7 @@ package com.github.copilotsilent.ui
 import com.github.copilot.chat.conversation.agent.rpc.command.ChatMode
 import com.github.copilot.chat.conversation.agent.rpc.command.CopilotModel
 import com.github.copilotsilent.model.SilentChatEvent
+import com.github.copilotsilent.model.SilentChatNotifier
 import com.github.copilotsilent.service.CopilotSilentChatService
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
@@ -37,92 +38,70 @@ class SendSilentMessageAction : AnAction() {
         val newSession = dialog.isNewSession()
         val silent = dialog.isSilent()
 
-        service.sendMessage(
-            message = message,
-            model = selectedModel,
-            mode = selectedMode,
-            newSession = newSession,
-            silent = silent,
-            onEvent = { event ->
+        // Subscribe to MessageBus for this action's UI feedback
+        val conn = project.messageBus.connect()
+        conn.subscribe(SilentChatNotifier.TOPIC, object : SilentChatNotifier {
+            override fun onEvent(sessionId: String, event: SilentChatEvent) {
                 when (event) {
-                    is SilentChatEvent.SessionReady -> {
-                        log.info("Session ready: ${event.sessionId}")
-                    }
-                    is SilentChatEvent.Begin -> {
-                        log.info("Copilot is thinking...")
-                    }
-                    is SilentChatEvent.ConversationIdSync -> {
-                        log.info("Conversation ID: ${event.conversationId}")
-                    }
-                    is SilentChatEvent.TurnIdSync -> {
-                        log.info("Turn ID: ${event.turnId}, parent: ${event.parentTurnId}")
-                    }
-                    is SilentChatEvent.References -> {
-                        log.info("References: ${event.references.size} items")
-                    }
-                    is SilentChatEvent.Steps -> {
-                        for (step in event.steps) {
-                            log.info("Step [${step.status}]: ${step.title}")
-                        }
-                    }
-                    is SilentChatEvent.ConfirmationRequest -> {
-                        log.info("Confirmation requested: ${event.request}")
-                    }
-                    is SilentChatEvent.Notifications -> {
-                        log.info("Notifications: ${event.notifications.size} items")
-                    }
-                    is SilentChatEvent.Reply -> {
-                        log.info("Streaming: +${event.delta.length} chars")
-                    }
-                    is SilentChatEvent.EditAgentRound -> {
-                        log.info("Edit agent round: ${event.round}")
-                    }
+                    is SilentChatEvent.SessionReady -> log.info("Session ready: ${event.sessionId}")
+                    is SilentChatEvent.Begin -> log.info("Copilot is thinking...")
+                    is SilentChatEvent.ConversationIdSync -> log.info("Conversation ID: ${event.conversationId}")
+                    is SilentChatEvent.TurnIdSync -> log.info("Turn ID: ${event.turnId}, parent: ${event.parentTurnId}")
+                    is SilentChatEvent.References -> log.info("References: ${event.references.size} items")
+                    is SilentChatEvent.Steps -> event.steps.forEach { log.info("Step [${it.status}]: ${it.title}") }
+                    is SilentChatEvent.ConfirmationRequest -> log.info("Confirmation requested: ${event.request}")
+                    is SilentChatEvent.Notifications -> log.info("Notifications: ${event.notifications.size} items")
+                    is SilentChatEvent.Reply -> log.info("Streaming: +${event.delta.length} chars")
+                    is SilentChatEvent.EditAgentRound -> log.info("Edit agent round: ${event.round}")
                     is SilentChatEvent.ToolCallUpdate -> {
                         val duration = event.durationMs?.let { " (${it}ms)" } ?: ""
                         log.info("Tool [${event.status}] ${event.toolName}${duration} session=${event.sessionId}")
                     }
-                    is SilentChatEvent.UpdatedDocuments -> {
-                        log.info("Updated documents: ${event.documents.size}")
-                    }
-                    is SilentChatEvent.SuggestedTitle -> {
-                        log.info("Suggested title: ${event.title}")
-                    }
+                    is SilentChatEvent.UpdatedDocuments -> log.info("Updated documents: ${event.documents.size}")
+                    is SilentChatEvent.SuggestedTitle -> log.info("Suggested title: ${event.title}")
                     is SilentChatEvent.Complete -> {
                         log.info("Complete reply (${event.fullReply.length} chars)")
+                        conn.disconnect()
                         ApplicationManager.getApplication().invokeLater {
-                            Messages.showInfoMessage(
-                                project,
-                                event.fullReply.take(2000),
-                                "Copilot Reply"
-                            )
+                            Messages.showInfoMessage(project, event.fullReply.take(2000), "Copilot Reply")
                         }
                     }
                     is SilentChatEvent.Filter -> {
                         log.warn("Response filtered: ${event.message}")
+                        conn.disconnect()
                         ApplicationManager.getApplication().invokeLater {
                             Messages.showErrorDialog(project, event.message ?: "Response was filtered", "Copilot Filtered")
                         }
                     }
                     is SilentChatEvent.Error -> {
                         log.warn("Error [${event.code}]: ${event.message}")
+                        conn.disconnect()
                         ApplicationManager.getApplication().invokeLater {
                             Messages.showErrorDialog(project, event.message, "Copilot Error")
                         }
                     }
                     is SilentChatEvent.Unauthorized -> {
                         log.warn("Unauthorized: ${event.unauthorized.agentSlug}")
+                        conn.disconnect()
                         ApplicationManager.getApplication().invokeLater {
                             Messages.showErrorDialog(project, "Unauthorized", "Copilot Unauthorized")
                         }
                     }
                     is SilentChatEvent.Cancel -> {
                         log.info("Cancelled")
+                        conn.disconnect()
                     }
-                    is SilentChatEvent.ModelInformation -> {
-                        log.info("Model info: ${event.modelName}/${event.modelProviderName}")
-                    }
+                    is SilentChatEvent.ModelInformation -> log.info("Model info: ${event.modelName}/${event.modelProviderName}")
                 }
             }
+        })
+
+        service.sendMessage(
+            message = message,
+            model = selectedModel,
+            mode = selectedMode,
+            newSession = newSession,
+            silent = silent,
         )
     }
 

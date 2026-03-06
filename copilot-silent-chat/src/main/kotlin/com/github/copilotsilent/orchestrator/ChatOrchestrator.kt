@@ -3,6 +3,7 @@ package com.github.copilotsilent.orchestrator
 import com.github.copilot.chat.conversation.agent.rpc.command.ChatMode
 import com.github.copilot.chat.conversation.agent.rpc.command.CopilotModel
 import com.github.copilotsilent.model.SilentChatEvent
+import com.github.copilotsilent.model.SilentChatNotifier
 import com.github.copilotsilent.service.CopilotSilentChatService
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
@@ -11,7 +12,6 @@ import com.intellij.openapi.project.Project
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
  * Orchestrates sequential and parallel message dispatching.
@@ -32,18 +32,14 @@ class ChatOrchestrator(
     /**
      * Send multiple messages in parallel — each gets its own new session.
      */
-    fun sendParallel(
-        requests: List<ChatRequest>,
-        onEvent: ((index: Int, SilentChatEvent) -> Unit)? = null
-    ) {
-        for ((index, request) in requests.withIndex()) {
+    fun sendParallel(requests: List<ChatRequest>) {
+        for (request in requests) {
             service.sendMessage(
                 message = request.message,
                 model = request.model,
                 mode = request.mode,
                 newSession = true,
                 silent = request.silent,
-                onEvent = { event -> onEvent?.invoke(index, event) }
             )
         }
     }
@@ -55,7 +51,6 @@ class ChatOrchestrator(
     fun sendSequential(
         requests: List<ChatRequest>,
         sessionId: String? = null,
-        onEvent: ((index: Int, SilentChatEvent) -> Unit)? = null
     ) {
         coroutineScope.launch {
             var sid = sessionId
@@ -63,19 +58,14 @@ class ChatOrchestrator(
             for ((index, request) in requests.withIndex()) {
                 val completion = CompletableDeferred<String?>()
 
-                service.sendMessage(
-                    message = request.message,
-                    sessionId = sid,
-                    model = request.model,
-                    mode = request.mode,
-                    newSession = (sid == null && index == 0),
-                    silent = request.silent,
-                    onEvent = { event ->
-                        onEvent?.invoke(index, event)
-
+                // Subscribe to MessageBus to track session lifecycle for sequencing
+                val conn = project.messageBus.connect()
+                conn.subscribe(SilentChatNotifier.TOPIC, object : SilentChatNotifier {
+                    override fun onEvent(eventSessionId: String, event: SilentChatEvent) {
+                        // Only react to events for the session we're tracking
+                        if (sid != null && eventSessionId != sid) return
                         when (event) {
                             is SilentChatEvent.SessionReady -> {
-                                // Capture session ID for subsequent messages
                                 sid = event.sessionId
                             }
                             is SilentChatEvent.Complete -> {
@@ -87,10 +77,20 @@ class ChatOrchestrator(
                             else -> {}
                         }
                     }
+                })
+
+                service.sendMessage(
+                    message = request.message,
+                    sessionId = sid,
+                    model = request.model,
+                    mode = request.mode,
+                    newSession = (sid == null && index == 0),
+                    silent = request.silent,
                 )
 
                 // Wait for this message to finish before sending the next
                 val result = completion.await()
+                conn.disconnect()
                 if (result == null) {
                     log.warn("Sequential chain stopped at request $index due to error")
                     break

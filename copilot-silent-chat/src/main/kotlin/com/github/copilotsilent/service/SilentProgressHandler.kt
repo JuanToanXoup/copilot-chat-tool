@@ -6,6 +6,8 @@ import com.github.copilot.chat.conversation.agent.rpc.message.AgentToolCall
 import com.github.copilot.chat.conversation.agent.rpc.message.ConversationError
 import com.github.copilot.chat.conversation.agent.rpc.message.ConversationProgressValue
 import com.github.copilotsilent.model.SilentChatEvent
+import com.github.copilotsilent.model.SilentChatNotifier
+import com.intellij.openapi.project.Project
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -15,11 +17,17 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * AbstractCopilotAgentConversationProgressHandler.on() dispatches
  * CopilotAgentConversationProgressEvent subtypes to the on* methods below.
+ *
+ * Publishes all events to [SilentChatNotifier.TOPIC] via the project MessageBus.
  */
 class SilentProgressHandler(
+    private val project: Project,
     private val sessionId: String,
-    private val onEvent: ((SilentChatEvent) -> Unit)?
 ) : AbstractCopilotAgentConversationProgressHandler() {
+
+    private fun publish(event: SilentChatEvent) {
+        project.messageBus.syncPublisher(SilentChatNotifier.TOPIC).onEvent(sessionId, event)
+    }
 
     private val replyBuilder = StringBuilder()
 
@@ -34,41 +42,41 @@ class SilentProgressHandler(
     private var currentParentTurnId: String? = null
 
     override fun onBegin() {
-        onEvent?.invoke(SilentChatEvent.Begin)
+        publish(SilentChatEvent.Begin)
     }
 
     override fun onProgress(progress: ConversationProgressValue) {
         // Sync conversation/turn IDs
         if (progress.conversationId.isNotBlank()) {
-            onEvent?.invoke(SilentChatEvent.ConversationIdSync(progress.conversationId))
+            publish(SilentChatEvent.ConversationIdSync(progress.conversationId))
         }
         if (progress.turnId.isNotBlank()) {
             currentTurnId = progress.turnId
             currentParentTurnId = progress.parentTurnId
-            onEvent?.invoke(SilentChatEvent.TurnIdSync(progress.turnId, progress.parentTurnId))
+            publish(SilentChatEvent.TurnIdSync(progress.turnId, progress.parentTurnId))
         }
 
         // References
         val references = progress.references
         if (references != null) {
-            onEvent?.invoke(SilentChatEvent.References(references, progress.parentTurnId))
+            publish(SilentChatEvent.References(references, progress.parentTurnId))
         }
 
         // Steps (agent tool calls — high-level status)
         val steps = progress.steps
         if (!steps.isNullOrEmpty()) {
-            onEvent?.invoke(SilentChatEvent.Steps(steps, progress.parentTurnId))
+            publish(SilentChatEvent.Steps(steps, progress.parentTurnId))
         }
 
         // Confirmation request
         progress.confirmationRequest?.let {
-            onEvent?.invoke(SilentChatEvent.ConfirmationRequest(it))
+            publish(SilentChatEvent.ConfirmationRequest(it))
         }
 
         // Notifications
         val notifications = progress.notifications
         if (!notifications.isNullOrEmpty()) {
-            onEvent?.invoke(SilentChatEvent.Notifications(notifications))
+            publish(SilentChatEvent.Notifications(notifications))
         }
 
         // Reply text — capture even when hideText is true (agent mode hides from
@@ -77,14 +85,14 @@ class SilentProgressHandler(
         if (reply != null && reply.isNotBlank()) {
             replyBuilder.append(reply)
             val annotations = progress.annotations ?: emptyList()
-            onEvent?.invoke(SilentChatEvent.Reply(reply, replyBuilder.toString(), annotations, progress.parentTurnId))
+            publish(SilentChatEvent.Reply(reply, replyBuilder.toString(), annotations, progress.parentTurnId))
         }
 
         // Edit agent rounds — extract tool calls with timing and reply text
         val editAgentRounds = progress.editAgentRounds
         if (!editAgentRounds.isNullOrEmpty()) {
             for (round in editAgentRounds) {
-                onEvent?.invoke(SilentChatEvent.EditAgentRound(round, progress.parentTurnId))
+                publish(SilentChatEvent.EditAgentRound(round, progress.parentTurnId))
                 emitToolCallUpdates(round.roundId, round.toolCalls, progress.parentTurnId)
 
                 // Agent mode may deliver reply text via round.reply instead of progress.reply
@@ -92,7 +100,7 @@ class SilentProgressHandler(
                 if (roundReply != null && roundReply.isNotBlank()) {
                     replyBuilder.append(roundReply)
                     val annotations = progress.annotations ?: emptyList()
-                    onEvent?.invoke(SilentChatEvent.Reply(roundReply, replyBuilder.toString(), annotations, progress.parentTurnId))
+                    publish(SilentChatEvent.Reply(roundReply, replyBuilder.toString(), annotations, progress.parentTurnId))
                 }
             }
         }
@@ -108,12 +116,12 @@ class SilentProgressHandler(
             }
         }
         if (updatedDocuments != null && updatedDocuments.isNotEmpty()) {
-            onEvent?.invoke(SilentChatEvent.UpdatedDocuments(updatedDocuments))
+            publish(SilentChatEvent.UpdatedDocuments(updatedDocuments))
         }
 
         // Suggested title
         complete.suggestedTitle?.let {
-            onEvent?.invoke(SilentChatEvent.SuggestedTitle(it))
+            publish(SilentChatEvent.SuggestedTitle(it))
         }
 
         // Final edit agent rounds — emit any remaining tool call completions
@@ -140,15 +148,15 @@ class SilentProgressHandler(
             }
         }
 
-        onEvent?.invoke(SilentChatEvent.Complete(replyBuilder.toString()))
+        publish(SilentChatEvent.Complete(replyBuilder.toString()))
     }
 
     override fun onError(error: ConversationError) {
         if (error.responseIsFiltered == true) {
-            onEvent?.invoke(SilentChatEvent.Filter(error.message))
+            publish(SilentChatEvent.Filter(error.message))
         } else {
             val code = error.code?.toInt() ?: 0
-            onEvent?.invoke(SilentChatEvent.Error(
+            publish(SilentChatEvent.Error(
                 error.message ?: "Unknown error",
                 code,
                 error.reason,
@@ -156,15 +164,15 @@ class SilentProgressHandler(
                 error.modelProviderName
             ))
         }
-        onEvent?.invoke(SilentChatEvent.Complete(replyBuilder.toString()))
+        publish(SilentChatEvent.Complete(replyBuilder.toString()))
     }
 
     override fun onUnauthorized(unauthorized: Unauthorized) {
-        onEvent?.invoke(SilentChatEvent.Unauthorized(unauthorized))
+        publish(SilentChatEvent.Unauthorized(unauthorized))
     }
 
     override fun onSyncConversationId(conversationId: String) {
-        onEvent?.invoke(SilentChatEvent.ConversationIdSync(conversationId))
+        publish(SilentChatEvent.ConversationIdSync(conversationId))
     }
 
     override fun onSyncModelInformation(
@@ -172,11 +180,11 @@ class SilentProgressHandler(
         modelProviderName: String?,
         modelBillingMultiplier: String?
     ) {
-        onEvent?.invoke(SilentChatEvent.ModelInformation(modelName, modelProviderName, modelBillingMultiplier))
+        publish(SilentChatEvent.ModelInformation(modelName, modelProviderName, modelBillingMultiplier))
     }
 
     override fun onCancel() {
-        onEvent?.invoke(SilentChatEvent.Cancel)
+        publish(SilentChatEvent.Cancel)
     }
 
     /**
@@ -216,7 +224,7 @@ class SilentProgressHandler(
                 SilentChatEvent.ToolCallResult(rd.type, rd.value)
             }
 
-            onEvent?.invoke(SilentChatEvent.ToolCallUpdate(
+            publish(SilentChatEvent.ToolCallUpdate(
                 sessionId = sessionId,
                 turnId = currentTurnId,
                 parentTurnId = parentTurnId,

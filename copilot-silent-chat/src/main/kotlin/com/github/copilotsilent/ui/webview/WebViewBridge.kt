@@ -5,6 +5,7 @@ import com.github.copilot.chat.conversation.agent.rpc.command.ChatMode
 import com.github.copilot.chat.conversation.agent.rpc.command.CopilotModel
 import com.github.copilot.model.CompositeModelService
 import com.github.copilotsilent.model.SilentChatEvent
+import com.github.copilotsilent.model.SilentChatNotifier
 import com.github.copilotsilent.service.CopilotSilentChatService
 import com.google.gson.Gson
 import com.google.gson.JsonParser
@@ -46,15 +47,27 @@ class WebViewBridge(
     private var modelsJob: Job? = null
     private var modesJob: Job? = null
 
+    private var busConnection: com.intellij.util.messages.MessageBusConnection? = null
+
     fun attach() {
         panel.messageHandler = ::handleMessage
         collectModelsFlow()
         collectModesFlow()
+
+        busConnection = project.messageBus.connect().also { conn ->
+            conn.subscribe(SilentChatNotifier.TOPIC, object : SilentChatNotifier {
+                override fun onEvent(sessionId: String, event: SilentChatEvent) {
+                    sendEventToJs(event)
+                }
+            })
+        }
     }
 
     fun detach() {
         modelsJob?.cancel()
         modesJob?.cancel()
+        busConnection?.disconnect()
+        busConnection = null
         if (panel.messageHandler === ::handleMessage) {
             panel.messageHandler = null
         }
@@ -147,7 +160,6 @@ class WebViewBridge(
             mode = mode,
             newSession = newSession,
             silent = silent,
-            onEvent = { event -> sendEventToJs(event) }
         )
     }
 
