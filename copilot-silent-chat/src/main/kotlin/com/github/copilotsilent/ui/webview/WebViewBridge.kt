@@ -1,35 +1,32 @@
 package com.github.copilotsilent.ui.webview
 
-import com.github.copilot.agent.chatMode.ChatModeService
 import com.github.copilot.chat.conversation.agent.rpc.command.ChatMode
 import com.github.copilot.chat.conversation.agent.rpc.command.CopilotModel
-import com.github.copilot.model.CompositeModelService
+import com.github.copilotsilent.model.ModelsUpdateListener
+import com.github.copilotsilent.model.ModesUpdateListener
 import com.github.copilotsilent.model.SilentChatEvent
-import com.github.copilotsilent.model.SilentChatNotifier
+import com.github.copilotsilent.model.SilentChatListener
 import com.github.copilotsilent.service.CopilotSilentChatService
+import com.github.copilotsilent.store.SessionStore
 import com.google.gson.Gson
 import com.google.gson.JsonParser
-import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
 
 /**
- * Routes messages between a JcefBrowserPanel (React UI) and CopilotSilentChatService.
+ * Thin mediator between the JCEF browser and the plugin's MessageBus topics.
  *
- * JS -> Kotlin: React calls window.__bridge.postMessage(json) -> panel.messageHandler -> handleMessage()
- * Kotlin -> JS: panel.pushData(channel, json) -> CustomEvent('jcef-data') -> React listener
+ * Outbound (Kotlin → JS): subscribes to MessageBus topics and calls pushData().
+ * Inbound (JS → Kotlin): routes commands to services via handleMessage().
  *
- * Subscribes to Copilot's StateFlows for models and modes, pushing updates
- * to the webview whenever they change (they load asynchronously after agent connect).
+ * All cleanup is handled by connect(parentDisposable) — no manual detach needed.
  */
 class WebViewBridge(
     private val project: Project,
     private val panel: JcefBrowserPanel,
-    private val coroutineScope: CoroutineScope,
+    parentDisposable: Disposable,
 ) {
 
     private val log = Logger.getInstance(WebViewBridge::class.java)
@@ -38,67 +35,37 @@ class WebViewBridge(
     private val service: CopilotSilentChatService
         get() = project.service<CopilotSilentChatService>()
 
-    private val chatModeService: ChatModeService
-        get() = project.service<ChatModeService>()
-
-    private val compositeModelService: CompositeModelService
-        get() = ApplicationManager.getApplication().getService(CompositeModelService::class.java)
-
-    private var modelsJob: Job? = null
-    private var modesJob: Job? = null
-
-    private var busConnection: com.intellij.util.messages.MessageBusConnection? = null
+    private val sessionStore: SessionStore
+        get() = project.service<SessionStore>()
 
     fun attach() {
         panel.messageHandler = ::handleMessage
-        collectModelsFlow()
-        collectModesFlow()
 
-        busConnection = project.messageBus.connect().also { conn ->
-            conn.subscribe(SilentChatNotifier.TOPIC, object : SilentChatNotifier {
-                override fun onEvent(sessionId: String, event: SilentChatEvent) {
-                    sendEventToJs(event)
-                }
-            })
-        }
-    }
-
-    fun detach() {
-        modelsJob?.cancel()
-        modesJob?.cancel()
-        busConnection?.disconnect()
-        busConnection = null
-        if (panel.messageHandler === ::handleMessage) {
-            panel.messageHandler = null
-        }
+        // Push current state for late attach
+        pushModels(service.getAvailableModels())
+        pushModes(service.getAvailableModes(), service.getCurrentMode())
     }
 
     /**
-     * Collects the models StateFlow and pushes updates to the webview
-     * whenever the model list changes.
+     * Subscribes to all MessageBus topics. Connection auto-disconnects
+     * when parentDisposable is disposed — no manual cleanup needed.
      */
-    private fun collectModelsFlow() {
-        modelsJob = coroutineScope.launch {
-            @Suppress("UNCHECKED_CAST")
-            val modelsFlow = compositeModelService.models.unscoped
-            modelsFlow.collect { models ->
-                val modelList = (models as? List<CopilotModel>) ?: return@collect
-                pushModels(modelList)
-            }
-        }
-    }
+    init {
+        val connection = project.messageBus.connect(parentDisposable)
 
-    /**
-     * Collects the chatModes StateFlow and pushes updates to the webview
-     * whenever the modes list changes.
-     */
-    private fun collectModesFlow() {
-        modesJob = coroutineScope.launch {
-            chatModeService.chatModes.collect { modes ->
-                val currentMode = chatModeService.currentMode.value
-                pushModes(modes, currentMode)
+        connection.subscribe(SilentChatListener.TOPIC, object : SilentChatListener {
+            override fun onEvent(sessionId: String, event: SilentChatEvent) {
+                sendEventToJs(event)
             }
-        }
+        })
+
+        connection.subscribe(ModelsUpdateListener.TOPIC, ModelsUpdateListener { models ->
+            pushModels(models)
+        })
+
+        connection.subscribe(ModesUpdateListener.TOPIC, ModesUpdateListener { modes, currentMode ->
+            pushModes(modes, currentMode)
+        })
     }
 
     private fun pushModels(models: List<CopilotModel>) {
@@ -108,12 +75,12 @@ class WebViewBridge(
         panel.pushData("models", gson.toJson(data))
     }
 
-    private fun pushModes(modes: List<ChatMode>, currentMode: ChatMode) {
+    private fun pushModes(modes: List<ChatMode>, currentMode: ChatMode?) {
         val data = mapOf(
             "modes" to modes.map { mode ->
                 mapOf("id" to mode.id, "name" to mode.name, "kind" to mode.kind)
             },
-            "currentModeId" to currentMode.id,
+            "currentModeId" to currentMode?.id,
         )
         panel.pushData("modes", gson.toJson(data))
     }
@@ -152,6 +119,11 @@ class WebViewBridge(
         val mode = if (modeId != null) {
             service.getAvailableModes().find { it.id == modeId }
         } else null
+
+        // Record prompt so SessionStore can persist it with the message entry.
+        // For new sessions, we use a pending key that gets resolved on SessionReady.
+        val promptKey = sessionId ?: SessionStore.PENDING_PROMPT_KEY
+        sessionStore.recordPrompt(promptKey, message)
 
         service.sendMessage(
             message = message,

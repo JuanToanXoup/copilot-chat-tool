@@ -1,1 +1,7 @@
 /copilot-chat-tool.iml
+/github-copilot-intellij-1.5.65-243/
+/.idea/
+
+# Webview
+copilot-silent-chat/webview/node_modules/
+copilot-silent-chat/src/main/resources/webview/

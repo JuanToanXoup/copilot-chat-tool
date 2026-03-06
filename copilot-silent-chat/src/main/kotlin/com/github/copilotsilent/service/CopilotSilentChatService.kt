@@ -11,7 +11,7 @@ import com.github.copilot.chat.input.ModelId
 import com.github.copilot.chat.window.ShowChatToolWindowsListener
 import com.github.copilot.model.CompositeModelService
 import com.github.copilotsilent.model.SilentChatEvent
-import com.github.copilotsilent.model.SilentChatNotifier
+import com.github.copilotsilent.model.SilentChatListener
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.application.ApplicationManager
@@ -95,7 +95,7 @@ class CopilotSilentChatService(
      *               exactly like CopilotChatServiceImpl does via ShowChatToolWindowsListener
      */
     private fun publish(sid: String, event: SilentChatEvent) {
-        project.messageBus.syncPublisher(SilentChatNotifier.TOPIC).onEvent(sid, event)
+        project.messageBus.syncPublisher(SilentChatListener.TOPIC).onEvent(sid, event)
     }
 
     fun sendMessage(

@@ -16,6 +16,17 @@
         <projectService
             serviceInterface="com.github.copilotsilent.orchestrator.ChatOrchestrator"
             serviceImplementation="com.github.copilotsilent.orchestrator.ChatOrchestrator"/>
+        <projectService
+            serviceInterface="com.github.copilotsilent.store.SessionStore"
+            serviceImplementation="com.github.copilotsilent.store.SessionStore"/>
+        <projectService
+            serviceInterface="com.github.copilotsilent.service.StateFlowBroadcaster"
+            serviceImplementation="com.github.copilotsilent.service.StateFlowBroadcaster"/>
+
+        <postStartupActivity
+            implementation="com.github.copilotsilent.store.SessionStoreInitializer"/>
+        <postStartupActivity
+            implementation="com.github.copilotsilent.service.StateFlowBroadcasterInitializer"/>
 
         <toolWindow id="Copilot Chat (React)"
                     anchor="right"

@@ -18,11 +18,19 @@ intellij {
     // No marketplace plugin reference — we add jars manually
 }
 
+val exposedVersion = "0.58.0"
+
 dependencies {
     // Compile against the Copilot plugin jars
     compileOnly(fileTree(copilotPluginDir.resolve("lib")) {
         include("*.jar")
     })
+
+    // SQLite + Exposed ORM for session persistence
+    implementation("org.xerial:sqlite-jdbc:3.47.2.0")
+    implementation("org.jetbrains.exposed:exposed-core:$exposedVersion")
+    implementation("org.jetbrains.exposed:exposed-jdbc:$exposedVersion")
+    implementation("org.jetbrains.exposed:exposed-dao:$exposedVersion")
 }
 
 kotlin {

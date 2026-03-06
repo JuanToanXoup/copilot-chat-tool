@@ -6,7 +6,7 @@ import com.github.copilot.chat.conversation.agent.rpc.message.AgentToolCall
 import com.github.copilot.chat.conversation.agent.rpc.message.ConversationError
 import com.github.copilot.chat.conversation.agent.rpc.message.ConversationProgressValue
 import com.github.copilotsilent.model.SilentChatEvent
-import com.github.copilotsilent.model.SilentChatNotifier
+import com.github.copilotsilent.model.SilentChatListener
 import com.intellij.openapi.project.Project
 import java.util.concurrent.ConcurrentHashMap
 
@@ -18,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap
  * AbstractCopilotAgentConversationProgressHandler.on() dispatches
  * CopilotAgentConversationProgressEvent subtypes to the on* methods below.
  *
- * Publishes all events to [SilentChatNotifier.TOPIC] via the project MessageBus.
+ * Publishes all events to [SilentChatListener.TOPIC] via the project MessageBus.
  */
 class SilentProgressHandler(
     private val project: Project,
@@ -26,7 +26,7 @@ class SilentProgressHandler(
 ) : AbstractCopilotAgentConversationProgressHandler() {
 
     private fun publish(event: SilentChatEvent) {
-        project.messageBus.syncPublisher(SilentChatNotifier.TOPIC).onEvent(sessionId, event)
+        project.messageBus.syncPublisher(SilentChatListener.TOPIC).onEvent(sessionId, event)
     }
 
     private val replyBuilder = StringBuilder()

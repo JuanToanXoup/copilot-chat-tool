@@ -3,7 +3,7 @@ package com.github.copilotsilent.orchestrator
 import com.github.copilot.chat.conversation.agent.rpc.command.ChatMode
 import com.github.copilot.chat.conversation.agent.rpc.command.CopilotModel
 import com.github.copilotsilent.model.SilentChatEvent
-import com.github.copilotsilent.model.SilentChatNotifier
+import com.github.copilotsilent.model.SilentChatListener
 import com.github.copilotsilent.service.CopilotSilentChatService
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
@@ -12,6 +12,7 @@ import com.intellij.openapi.project.Project
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Orchestrates sequential and parallel message dispatching.
@@ -47,54 +48,69 @@ class ChatOrchestrator(
     /**
      * Send multiple messages sequentially on the same session.
      * Each message waits for the previous to complete before sending.
+     *
+     * Subscribes once to the MessageBus for the entire chain. Uses an
+     * AtomicReference to track the current session ID so the subscriber
+     * only reacts to events for the active step's session.
      */
     fun sendSequential(
         requests: List<ChatRequest>,
         sessionId: String? = null,
     ) {
         coroutineScope.launch {
-            var sid = sessionId
+            val currentSid = AtomicReference(sessionId)
+            val currentCompletion = AtomicReference<CompletableDeferred<String?>>()
 
-            for ((index, request) in requests.withIndex()) {
-                val completion = CompletableDeferred<String?>()
+            val conn = project.messageBus.connect()
+            conn.subscribe(SilentChatListener.TOPIC, object : SilentChatListener {
+                override fun onEvent(eventSessionId: String, event: SilentChatEvent) {
+                    val expectedSid = currentSid.get()
 
-                // Subscribe to MessageBus to track session lifecycle for sequencing
-                val conn = project.messageBus.connect()
-                conn.subscribe(SilentChatNotifier.TOPIC, object : SilentChatNotifier {
-                    override fun onEvent(eventSessionId: String, event: SilentChatEvent) {
-                        // Only react to events for the session we're tracking
-                        if (sid != null && eventSessionId != sid) return
-                        when (event) {
-                            is SilentChatEvent.SessionReady -> {
-                                sid = event.sessionId
+                    when (event) {
+                        is SilentChatEvent.SessionReady -> {
+                            // Accept SessionReady only when we're waiting for a new session
+                            // (expectedSid is null) — this locks us to that session
+                            if (expectedSid == null) {
+                                currentSid.set(event.sessionId)
                             }
-                            is SilentChatEvent.Complete -> {
-                                completion.complete(sid)
-                            }
-                            is SilentChatEvent.Error -> {
-                                completion.complete(null)
-                            }
-                            else -> {}
                         }
+                        is SilentChatEvent.Complete -> {
+                            if (eventSessionId == currentSid.get()) {
+                                currentCompletion.get()?.complete(currentSid.get())
+                            }
+                        }
+                        is SilentChatEvent.Error -> {
+                            if (eventSessionId == currentSid.get()) {
+                                currentCompletion.get()?.complete(null)
+                            }
+                        }
+                        else -> {}
                     }
-                })
-
-                service.sendMessage(
-                    message = request.message,
-                    sessionId = sid,
-                    model = request.model,
-                    mode = request.mode,
-                    newSession = (sid == null && index == 0),
-                    silent = request.silent,
-                )
-
-                // Wait for this message to finish before sending the next
-                val result = completion.await()
-                conn.disconnect()
-                if (result == null) {
-                    log.warn("Sequential chain stopped at request $index due to error")
-                    break
                 }
+            })
+
+            try {
+                for ((index, request) in requests.withIndex()) {
+                    val completion = CompletableDeferred<String?>()
+                    currentCompletion.set(completion)
+
+                    service.sendMessage(
+                        message = request.message,
+                        sessionId = currentSid.get(),
+                        model = request.model,
+                        mode = request.mode,
+                        newSession = (currentSid.get() == null && index == 0),
+                        silent = request.silent,
+                    )
+
+                    val result = completion.await()
+                    if (result == null) {
+                        log.warn("Sequential chain stopped at request $index due to error")
+                        break
+                    }
+                }
+            } finally {
+                conn.disconnect()
             }
         }
     }

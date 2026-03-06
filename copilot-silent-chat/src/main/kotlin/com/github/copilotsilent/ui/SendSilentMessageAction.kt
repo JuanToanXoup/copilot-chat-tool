@@ -3,7 +3,7 @@ package com.github.copilotsilent.ui
 import com.github.copilot.chat.conversation.agent.rpc.command.ChatMode
 import com.github.copilot.chat.conversation.agent.rpc.command.CopilotModel
 import com.github.copilotsilent.model.SilentChatEvent
-import com.github.copilotsilent.model.SilentChatNotifier
+import com.github.copilotsilent.model.SilentChatListener
 import com.github.copilotsilent.service.CopilotSilentChatService
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
@@ -40,7 +40,7 @@ class SendSilentMessageAction : AnAction() {
 
         // Subscribe to MessageBus for this action's UI feedback
         val conn = project.messageBus.connect()
-        conn.subscribe(SilentChatNotifier.TOPIC, object : SilentChatNotifier {
+        conn.subscribe(SilentChatListener.TOPIC, object : SilentChatListener {
             override fun onEvent(sessionId: String, event: SilentChatEvent) {
                 when (event) {
                     is SilentChatEvent.SessionReady -> log.info("Session ready: ${event.sessionId}")
