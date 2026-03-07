@@ -323,63 +323,6 @@ function PbEdgeComponent({
 const nodeTypes = { pbStep: PbStepNode, connector: ConnectorNode }
 const edgeTypes = { pbEdge: PbEdgeComponent }
 
-/* ─── Parameter Form ─── */
-
-function ParamForm({
-  params,
-  onRun,
-  onCancel,
-}: {
-  params: Record<string, PlaybookParam>
-  onRun: (values: Record<string, string>) => void
-  onCancel: () => void
-}) {
-  const [values, setValues] = useState<Record<string, string>>(() => {
-    const init: Record<string, string> = {}
-    for (const [key, param] of Object.entries(params)) {
-      init[key] = param.default || ''
-    }
-    return init
-  })
-
-  const entries = Object.entries(params)
-  const allRequired = entries
-    .filter(([, p]) => p.required !== false)
-    .every(([k]) => values[k]?.trim())
-
-  return (
-    <div className="pb-param-form">
-      <div className="pb-param-title">Parameters</div>
-      {entries.map(([key, param]) => (
-        <div key={key} className="pb-param-field">
-          <label className="pb-param-label">
-            {key}
-            {param.required !== false && <span style={{ color: '#ff5555' }}> *</span>}
-          </label>
-          <div className="pb-param-desc">{param.description}</div>
-          <input
-            className="pb-param-input"
-            type="text"
-            value={values[key] || ''}
-            placeholder={param.default || ''}
-            onChange={(e) => setValues((prev) => ({ ...prev, [key]: e.target.value }))}
-          />
-        </div>
-      ))}
-      <div className="pb-param-actions">
-        <button className="pb-param-cancel" onClick={onCancel}>Cancel</button>
-        <button
-          className="pb-param-run"
-          disabled={!allRequired}
-          onClick={() => onRun(values)}
-        >
-          Run Playbook
-        </button>
-      </div>
-    </div>
-  )
-}
-
 /* ─── DAG View ─── */
 
 export default function PlaybookDagView() {
@@ -387,7 +330,7 @@ export default function PlaybookDagView() {
   const [filePath, setFilePath] = useState<string | null>(null)
   const [nodes, setNodes, onNodesChange] = useNodesState([] as Node[])
   const [edges, setEdges, onEdgesChange] = useEdgesState([] as Edge[])
-  const [showParams, setShowParams] = useState(false)
+  const [paramValues, setParamValues] = useState<Record<string, string>>({})
   const [stepStates, setStepStates] = useState<Record<string, StepState>>({})
   const [stepResults, setStepResults] = useState<Record<string, string>>({})
   const [isRunning, setIsRunning] = useState(false)
@@ -400,6 +343,14 @@ export default function PlaybookDagView() {
         const pb = (payload._raw || payload) as Playbook
         setPlaybook(pb)
         setFilePath(payload._filePath || null)
+        // Init param values with defaults
+        if (pb.parameters) {
+          const init: Record<string, string> = {}
+          for (const [key, param] of Object.entries(pb.parameters)) {
+            init[key] = (param as PlaybookParam).default || ''
+          }
+          setParamValues(init)
+        }
         const { nodes: n, edges: e } = layoutPlaybook(pb)
         setNodes(n)
         setEdges(e)
@@ -462,11 +413,9 @@ export default function PlaybookDagView() {
     [playbook, stepStates, stepResults],
   )
 
-  const handleRun = useCallback((paramValues: Record<string, string>) => {
+  const handleRun = useCallback(() => {
     if (!filePath && !playbook) return
-    setShowParams(false)
     setIsRunning(true)
-    // Reset states
     const initial: Record<string, StepState> = {}
     playbook?.steps.forEach((s) => { initial[s.id] = 'idle' })
     setStepStates(initial)
@@ -476,7 +425,7 @@ export default function PlaybookDagView() {
       path: filePath,
       params: paramValues,
     })
-  }, [filePath, playbook])
+  }, [filePath, playbook, paramValues])
 
   if (!playbook) {
     return (
@@ -486,7 +435,11 @@ export default function PlaybookDagView() {
     )
   }
 
-  const hasParams = playbook.parameters && Object.keys(playbook.parameters).length > 0
+  const paramEntries = playbook.parameters ? Object.entries(playbook.parameters) : []
+  const hasParams = paramEntries.length > 0
+  const allRequiredFilled = paramEntries
+    .filter(([, p]) => p.required !== false)
+    .every(([k]) => paramValues[k]?.trim())
 
   return (
     <div className="ex-container">
@@ -498,7 +451,8 @@ export default function PlaybookDagView() {
             <button
               className="ex-analyze-btn"
               style={{ background: 'rgba(80,250,123,0.15)', color: '#50fa7b', borderColor: 'rgba(80,250,123,0.3)' }}
-              onClick={() => hasParams ? setShowParams(true) : handleRun({})}
+              disabled={hasParams && !allRequiredFilled}
+              onClick={handleRun}
             >
               Run
             </button>
@@ -509,12 +463,27 @@ export default function PlaybookDagView() {
         </div>
       </div>
 
-      {showParams && playbook.parameters && (
-        <ParamForm
-          params={playbook.parameters}
-          onRun={handleRun}
-          onCancel={() => setShowParams(false)}
-        />
+      {/* Parameter inputs — always visible when playbook has parameters */}
+      {hasParams && (
+        <div className="pb-param-form">
+          <div className="pb-param-title">Parameters</div>
+          {paramEntries.map(([key, param]) => (
+            <div key={key} className="pb-param-field">
+              <label className="pb-param-label">
+                {key}
+                {param.required !== false && <span style={{ color: '#ff5555' }}> *</span>}
+              </label>
+              <div className="pb-param-desc">{param.description}</div>
+              <input
+                className="pb-param-input"
+                type="text"
+                value={paramValues[key] || ''}
+                placeholder={param.default || ''}
+                onChange={(e) => setParamValues((prev) => ({ ...prev, [key]: e.target.value }))}
+              />
+            </div>
+          ))}
+        </div>
       )}
 
       <div className="ex-graph" style={{ flex: 1 }}>
