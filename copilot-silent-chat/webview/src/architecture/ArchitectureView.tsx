@@ -11,7 +11,7 @@ import {
   Position,
   BaseEdge,
   EdgeLabelRenderer,
-  getSmoothStepPath,
+  getBezierPath,
   type Node,
   type Edge,
   type NodeMouseHandler,
@@ -69,6 +69,12 @@ async function layoutLevel(level: C4Level): Promise<{ nodes: Node[]; edges: Edge
 
   const laid = await elk.layout(graph)
 
+  // Build a position lookup for computing best edge connection sides
+  const posMap = new Map<string, { x: number; y: number }>()
+  for (const c of laid.children ?? []) {
+    posMap.set(c.id, { x: (c.x ?? 0) + nodeW / 2, y: (c.y ?? 0) + nodeH / 2 })
+  }
+
   const nodes: Node[] = level.nodes.map((n) => {
     const elkNode = laid.children?.find((c) => c.id === n.id)
     return {
@@ -80,14 +86,38 @@ async function layoutLevel(level: C4Level): Promise<{ nodes: Node[]; edges: Edge
     }
   })
 
-  const edges: Edge[] = level.edges.map((e, i) => ({
-    id: `e-${i}-${e.source}-${e.target}`,
-    source: e.source,
-    target: e.target,
-    type: 'c4edge',
-    data: e,
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#484f58', width: 16, height: 16 },
-  }))
+  const edges: Edge[] = level.edges.map((e, i) => {
+    const src = posMap.get(e.source)
+    const tgt = posMap.get(e.target)
+    let sourceSide = 'bottom'
+    let targetSide = 'top'
+
+    if (src && tgt) {
+      const dx = tgt.x - src.x
+      const dy = tgt.y - src.y
+      if (Math.abs(dx) > Math.abs(dy)) {
+        sourceSide = dx > 0 ? 'right' : 'left'
+        targetSide = dx > 0 ? 'left' : 'right'
+      } else {
+        sourceSide = dy > 0 ? 'bottom' : 'top'
+        targetSide = dy > 0 ? 'top' : 'bottom'
+      }
+    }
+
+    const sourceHandle = `${sourceSide}-src`
+    const targetHandle = `${targetSide}-tgt`
+
+    return {
+      id: `e-${i}-${e.source}-${e.target}`,
+      source: e.source,
+      target: e.target,
+      sourceHandle,
+      targetHandle,
+      type: 'c4edge',
+      data: e,
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#484f58', width: 16, height: 16 },
+    }
+  })
 
   return { nodes, edges }
 }
@@ -99,10 +129,14 @@ function C4NodeComponent({ data }: { data: C4Node }) {
 
   return (
     <div className="c4-node" style={{ borderColor: style.border }}>
-      <Handle type="target" position={Position.Top} className="c4-handle" />
-      <Handle type="source" position={Position.Bottom} className="c4-handle" />
-      <Handle type="target" position={Position.Left} className="c4-handle" />
-      <Handle type="source" position={Position.Right} className="c4-handle" />
+      <Handle id="top-src" type="source" position={Position.Top} className="c4-handle" />
+      <Handle id="top-tgt" type="target" position={Position.Top} className="c4-handle" />
+      <Handle id="right-src" type="source" position={Position.Right} className="c4-handle" />
+      <Handle id="right-tgt" type="target" position={Position.Right} className="c4-handle" />
+      <Handle id="bottom-src" type="source" position={Position.Bottom} className="c4-handle" />
+      <Handle id="bottom-tgt" type="target" position={Position.Bottom} className="c4-handle" />
+      <Handle id="left-src" type="source" position={Position.Left} className="c4-handle" />
+      <Handle id="left-tgt" type="target" position={Position.Left} className="c4-handle" />
 
       <div className="c4-node-header">
         <span className="c4-node-badge" style={{ background: style.accent }}>
@@ -127,10 +161,9 @@ function C4EdgeComponent({
   id, sourceX, sourceY, targetX, targetY,
   sourcePosition, targetPosition, data, markerEnd,
 }: EdgeProps) {
-  const [edgePath, labelX, labelY] = getSmoothStepPath({
+  const [edgePath, labelX, labelY] = getBezierPath({
     sourceX, sourceY, sourcePosition,
     targetX, targetY, targetPosition,
-    borderRadius: 12,
   })
 
   const edgeData = data as C4Edge | undefined

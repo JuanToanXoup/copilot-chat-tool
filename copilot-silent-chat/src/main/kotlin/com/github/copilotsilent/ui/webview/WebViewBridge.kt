@@ -118,6 +118,7 @@ class WebViewBridge(
                 "getSession" -> handleGetSession(json)
                 "openFile" -> handleOpenFile(json)
                 "listArchitectureFiles" -> handleListArchitectureFiles()
+                "loadC4File" -> handleLoadC4File(json)
                 else -> log.warn("Unknown bridge command: $command")
             }
         } catch (e: Exception) {
@@ -268,6 +269,24 @@ class WebViewBridge(
             } catch (e: Exception) {
                 log.warn("handleListArchitectureFiles failed", e)
                 panel.pushData("architecture-files", "[]")
+            }
+        }
+    }
+
+    private fun handleLoadC4File(json: com.google.gson.JsonObject) {
+        val path = json.get("path")?.asString ?: return
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                val file = File(path)
+                if (!file.exists()) {
+                    log.warn("loadC4File: file not found: $path")
+                    return@executeOnPooledThread
+                }
+                val text = file.readText()
+                val basePath = file.parent ?: ""
+                panel.pushData("c4-file", """{"level":$text,"basePath":"$basePath"}""")
+            } catch (e: Exception) {
+                log.warn("loadC4File failed: $path", e)
             }
         }
     }
