@@ -34,3 +34,16 @@ export type PlaybookFileSummary = {
   name: string
   stepCount: number
 }
+
+/** Live execution progress pushed from Kotlin */
+export type PlaybookProgress = {
+  playbookId: string
+  playbookName: string
+  steps: {
+    id: string
+    name: string
+    state: StepState
+    result?: string
+    dependsOn: string[]
+  }[]
+}

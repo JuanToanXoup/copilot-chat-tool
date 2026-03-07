@@ -1,6 +1,7 @@
 package com.github.copilotsilent.ui.editor
 
 import com.github.copilotsilent.model.PlaybookStepDetailListener
+import com.github.copilotsilent.orchestrator.PlaybookProgressListener
 import com.github.copilotsilent.ui.webview.JcefBrowserPanel
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
@@ -49,6 +50,12 @@ class PlaybookPreviewEditor(
                 pushFileContent()
             }
         }, this)
+
+        // Subscribe to playbook execution progress → forward to the DAG view
+        val conn = project.messageBus.connect(this)
+        conn.subscribe(PlaybookProgressListener.TOPIC, PlaybookProgressListener { progressJson ->
+            panel?.pushData("playbook-progress", progressJson)
+        })
     }
 
     private fun pushFileContent() {
@@ -56,7 +63,10 @@ class PlaybookPreviewEditor(
             ReadAction.run<Throwable> {
                 val document = FileDocumentManager.getInstance().getDocument(file) ?: return@run
                 val text = document.text
-                panel?.pushData("playbook-file", text)
+                // Wrap with _filePath so the DAG view knows which file to run
+                val filePath = file.path
+                val payload = """{"_filePath":"$filePath","_raw":$text}"""
+                panel?.pushData("playbook-file", payload)
             }
         }
         if (ApplicationManager.getApplication().isDispatchThread) {

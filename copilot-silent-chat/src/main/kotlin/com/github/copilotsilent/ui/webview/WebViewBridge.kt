@@ -5,6 +5,8 @@ import com.github.copilot.chat.conversation.agent.rpc.command.CopilotModel
 import com.github.copilotsilent.model.ArchitectureNodeDetailListener
 import com.github.copilotsilent.model.PlaybookStepDetailListener
 import com.github.copilotsilent.model.ModelsUpdateListener
+import com.github.copilotsilent.orchestrator.PlaybookExecutor
+import com.github.copilotsilent.orchestrator.PlaybookProgressListener
 import com.github.copilotsilent.model.ModesUpdateListener
 import com.github.copilotsilent.model.SilentChatEvent
 import com.github.copilotsilent.model.SilentChatListener
@@ -81,6 +83,10 @@ class WebViewBridge(
         connection.subscribe(PlaybookStepDetailListener.TOPIC, PlaybookStepDetailListener { stepDetailJson ->
             panel.pushData("step-detail", stepDetailJson)
         })
+
+        connection.subscribe(PlaybookProgressListener.TOPIC, PlaybookProgressListener { progressJson ->
+            panel.pushData("playbook-progress", progressJson)
+        })
     }
 
     private fun pushModels(models: List<CopilotModel>) {
@@ -126,6 +132,7 @@ class WebViewBridge(
                 "loadC4File" -> handleLoadC4File(json)
                 "listPlaybookFiles" -> handleListPlaybookFiles()
                 "loadPlaybookFile" -> handleLoadPlaybookFile(json)
+                "runPlaybook" -> handleRunPlaybook(json)
                 else -> log.warn("Unknown bridge command: $command")
             }
         } catch (e: Exception) {
@@ -330,6 +337,29 @@ class WebViewBridge(
         }
         ApplicationManager.getApplication().invokeLater {
             FileEditorManager.getInstance(project).openFile(vf, true)
+        }
+    }
+
+    private fun handleRunPlaybook(json: com.google.gson.JsonObject) {
+        val path = json.get("path")?.asString ?: return
+        val paramsObj = json.getAsJsonObject("params") ?: com.google.gson.JsonObject()
+        val paramValues = mutableMapOf<String, String>()
+        for (entry in paramsObj.entrySet()) {
+            paramValues[entry.key] = entry.value.asString
+        }
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                val file = File(path)
+                if (!file.exists()) {
+                    log.warn("runPlaybook: file not found: $path")
+                    return@executeOnPooledThread
+                }
+                val playbookJson = file.readText()
+                val executor = project.service<PlaybookExecutor>()
+                executor.execute(playbookJson, paramValues)
+            } catch (e: Exception) {
+                log.warn("runPlaybook failed: $path", e)
+            }
         }
     }
 
