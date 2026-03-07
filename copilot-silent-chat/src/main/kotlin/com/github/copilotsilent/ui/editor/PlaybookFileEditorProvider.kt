@@ -12,14 +12,14 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 
 /**
- * Detects .c4.json files inside .citi-ai/architecture/ and opens them
- * with a split editor: JSON text on one side, React Flow visualization on the other.
+ * Detects playbook JSON files inside .citi-ai/playbooks/ and opens them
+ * with a split editor: JSON text on one side, DAG visualization on the other.
  */
-class ArchitectureFileEditorProvider : FileEditorProvider, DumbAware {
+class PlaybookFileEditorProvider : FileEditorProvider, DumbAware {
 
     override fun accept(project: Project, file: VirtualFile): Boolean {
         if (!file.name.endsWith(".json")) return false
-        return file.path.contains(".citi-ai/architecture")
+        return file.path.contains(".citi-ai/playbook")
     }
 
     override fun createEditor(project: Project, file: VirtualFile): FileEditor {
@@ -28,16 +28,16 @@ class ArchitectureFileEditorProvider : FileEditorProvider, DumbAware {
         }
 
         val textEditor = TextEditorProvider.getInstance().createEditor(project, file) as TextEditor
-        val previewEditor = ArchitecturePreviewEditor(project, file)
+        val previewEditor = PlaybookPreviewEditor(project, file)
         return TextEditorWithPreview(
             textEditor,
             previewEditor,
-            "Architecture",
+            "Playbook",
             TextEditorWithPreview.Layout.SHOW_PREVIEW,
         )
     }
 
-    override fun getEditorTypeId(): String = "citi-ai-architecture-editor"
+    override fun getEditorTypeId(): String = "citi-ai-playbook-editor"
 
     override fun getPolicy(): FileEditorPolicy = FileEditorPolicy.HIDE_DEFAULT_EDITOR
 }

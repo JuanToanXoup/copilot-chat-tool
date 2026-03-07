@@ -105,33 +105,33 @@
 
 /* --- React Flow Overrides --- */
 .ex-graph .react-flow__background {
-  background: #0d1117 !important;
+  background: #282a36 !important;
 }
 
 .ex-controls {
-  background: #161b22 !important;
-  border: 1px solid #30363d !important;
+  background: #282a36 !important;
+  border: 1px solid #44475a !important;
   border-radius: 8px !important;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
 }
 .ex-controls button {
-  background: #161b22 !important;
-  border-color: #30363d !important;
-  color: #8b949e !important;
+  background: #282a36 !important;
+  border-color: #44475a !important;
+  color: #6272a4 !important;
   width: 28px !important;
   height: 28px !important;
 }
 .ex-controls button:hover {
-  background: #21262d !important;
-  color: #c9d1d9 !important;
+  background: #44475a !important;
+  color: #f8f8f2 !important;
 }
 .ex-controls button svg {
   fill: currentColor !important;
 }
 
 .ex-minimap {
-  background: #0d1117 !important;
-  border: 1px solid #30363d !important;
+  background: #282a36 !important;
+  border: 1px solid #44475a !important;
   border-radius: 8px !important;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
 }
@@ -215,20 +215,110 @@
 .c4-handle {
   width: 6px !important;
   height: 6px !important;
-  background: #30363d !important;
+  background: #6272a4 !important;
   border: none !important;
   opacity: 0;
   transition: opacity 0.15s;
 }
+.c4-step:hover .c4-handle,
 .c4-node:hover .c4-handle {
   opacity: 1;
+}
+
+/* ─── C4 Step Node (dashboard-style) ─── */
+.c4-step {
+  background: #282a36;
+  border: 1px solid #44475a;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  min-width: 240px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.c4-step:hover {
+  border-color: #bd93f9;
+  box-shadow: 0 0 0 2px rgba(189, 147, 249, 0.15);
+}
+
+.c4-step-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  transition: background 0.15s;
+}
+
+.c4-step-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.c4-step-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.c4-step-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #f8f8f2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.c4-step-cmd {
+  font-size: 0.7rem;
+  color: #6272a4;
+  font-family: var(--font-mono);
+  margin-top: 2px;
+}
+
+.c4-step-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.c4-step-badge {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 20px;
+}
+
+.c4-step-chevron {
+  color: #6272a4;
+  flex-shrink: 0;
+}
+
+.c4-step-body {
+  border-top: 1px solid #44475a;
+  padding: 10px 16px;
+}
+
+.c4-step-desc {
+  font-size: 0.75rem;
+  color: #6272a4;
+  line-height: 1.6;
 }
 
 /* ─── C4 Edge ─── */
 .c4-edge-label {
   position: absolute;
-  background: #0d1117;
-  border: 1px solid #21262d;
+  background: #282a36;
+  border: 1px solid #44475a;
   border-radius: 4px;
   padding: 3px 8px;
   pointer-events: none;
@@ -238,14 +328,14 @@
 
 .c4-edge-label-text {
   font-size: 10px;
-  color: #8b949e;
+  color: #f8f8f2;
   line-height: 1.3;
 }
 
 .c4-edge-label-tech {
   font-family: var(--font-mono);
   font-size: 9px;
-  color: #484f58;
+  color: #6272a4;
 }
 
 /* ─── Sidebar (tool window) ─── */

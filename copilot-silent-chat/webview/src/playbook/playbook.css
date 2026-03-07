@@ -1,0 +1,358 @@
+/* ============================================
+   Playbook — Pipeline & DAG Visualization
+   Dracula theme
+   ============================================ */
+
+/* ─── Pipeline container ─── */
+.pb-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+  background: #282a36;
+}
+
+/* ─── Summary bar ─── */
+.pb-summary {
+  display: flex;
+  gap: 20px;
+  padding: 10px 18px;
+  background: #282a36;
+  border-bottom: 1px solid #44475a;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.pb-summary-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.78rem;
+  color: #f8f8f2;
+}
+
+.pb-summary-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.pb-summary-num {
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+
+.pb-summary-sep {
+  flex: 1;
+}
+
+.pb-summary-time {
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  color: #6272a4;
+}
+
+/* ─── Step card ─── */
+.pb-step {
+  background: #282a36;
+  border: 1px solid #44475a;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.pb-step.idle {}
+.pb-step.running {
+  border-color: #f1fa8c;
+  box-shadow: 0 0 0 2px rgba(241, 250, 140, 0.1);
+}
+.pb-step.success {
+  border-color: #50fa7b;
+}
+.pb-step.error {
+  border-color: #ff5555;
+  box-shadow: 0 0 0 2px rgba(255, 85, 85, 0.1);
+}
+
+/* ─── Step header ─── */
+.pb-step-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+.pb-step-header:hover {
+  background: #44475a;
+}
+.pb-step.running .pb-step-header {
+  background: rgba(241, 250, 140, 0.06);
+}
+.pb-step.success .pb-step-header {
+  background: rgba(80, 250, 123, 0.06);
+}
+.pb-step.error .pb-step-header {
+  background: rgba(255, 85, 85, 0.06);
+}
+
+/* ─── Step icon ─── */
+.pb-step-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pb-step.idle .pb-step-icon {
+  background: #44475a;
+  color: #6272a4;
+}
+.pb-step.running .pb-step-icon {
+  background: rgba(241, 250, 140, 0.15);
+  color: #f1fa8c;
+}
+.pb-step.success .pb-step-icon {
+  background: rgba(80, 250, 123, 0.15);
+  color: #50fa7b;
+}
+.pb-step.error .pb-step-icon {
+  background: rgba(255, 85, 85, 0.15);
+  color: #ff5555;
+}
+
+/* Spinner */
+.pb-spinner {
+  width: 13px;
+  height: 13px;
+  border: 2px solid rgba(241, 250, 140, 0.2);
+  border-top-color: #f1fa8c;
+  border-radius: 50%;
+  animation: pb-spin 0.7s linear infinite;
+}
+@keyframes pb-spin { to { transform: rotate(360deg); } }
+
+/* ─── Step info ─── */
+.pb-step-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.pb-step-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #f8f8f2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pb-step-meta {
+  font-size: 0.7rem;
+  color: #6272a4;
+  font-family: var(--font-mono);
+  margin-top: 2px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* ─── Step right side ─── */
+.pb-step-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.pb-step-duration {
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  color: #6272a4;
+  min-width: 38px;
+  text-align: right;
+}
+
+.pb-step-badge {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 20px;
+}
+.pb-step.idle .pb-step-badge {
+  background: #44475a;
+  color: #6272a4;
+}
+.pb-step.running .pb-step-badge {
+  background: rgba(241, 250, 140, 0.15);
+  color: #f1fa8c;
+}
+.pb-step.success .pb-step-badge {
+  background: rgba(80, 250, 123, 0.12);
+  color: #50fa7b;
+}
+.pb-step.error .pb-step-badge {
+  background: rgba(255, 85, 85, 0.12);
+  color: #ff5555;
+}
+
+.pb-agent-badge {
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(189, 147, 249, 0.12);
+  color: #bd93f9;
+}
+
+.pb-chevron {
+  width: 15px;
+  height: 15px;
+  color: #6272a4;
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+.pb-step.expanded .pb-chevron {
+  transform: rotate(180deg);
+}
+
+/* ─── Step body (expanded) ─── */
+.pb-step-body {
+  display: none;
+  border-top: 1px solid #44475a;
+  padding: 12px 16px;
+}
+.pb-step.expanded .pb-step-body {
+  display: block;
+}
+
+/* ─── Dependency chips ─── */
+.pb-deps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.pb-dep-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(139, 233, 253, 0.3);
+  background: rgba(139, 233, 253, 0.08);
+  color: #8be9fd;
+}
+
+.pb-dep-chip.resolved {
+  border-color: rgba(80, 250, 123, 0.3);
+  background: rgba(80, 250, 123, 0.08);
+  color: #50fa7b;
+}
+
+.pb-dep-chip.pending {
+  border-color: rgba(241, 250, 140, 0.3);
+  background: rgba(241, 250, 140, 0.08);
+  color: #f1fa8c;
+}
+
+/* ─── Prompt block ─── */
+.pb-prompt {
+  background: #21222c;
+  border: 1px solid #44475a;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  line-height: 1.7;
+  color: #6272a4;
+  max-height: 160px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ─── Variable references in prompt ─── */
+.pb-var-ref {
+  color: #ffb86c;
+  font-weight: 500;
+}
+
+/* ─── Progress bar ─── */
+.pb-progress-wrap {
+  height: 2px;
+  background: #44475a;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 10px;
+}
+.pb-progress {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+.pb-step.running .pb-progress { background: #f1fa8c; }
+.pb-step.success .pb-progress { background: #50fa7b; width: 100% !important; }
+.pb-step.error .pb-progress { background: #ff5555; }
+
+/* ─── Connector node (fork/join circle) ─── */
+.pb-connector-node {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1.5px solid #6272a4;
+  background: #282a36;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+}
+
+/* ─── File list (reusing c4-node card style) ─── */
+.pb-file-card {
+  background: #282a36;
+  border: 1px solid #44475a;
+  border-radius: 8px;
+  padding: 14px 16px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  border-left-width: 3px;
+  border-left-color: #bd93f9;
+}
+.pb-file-card:hover {
+  border-color: #bd93f9;
+  box-shadow: 0 0 0 2px rgba(189, 147, 249, 0.1);
+}
+
+.pb-file-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #f8f8f2;
+}
+
+.pb-file-meta {
+  font-size: 0.75rem;
+  color: #6272a4;
+  margin-top: 4px;
+}
+
+.pb-file-desc {
+  font-size: 0.72rem;
+  color: #6272a4;
+  margin-top: 6px;
+  line-height: 1.5;
+}

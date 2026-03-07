@@ -24,13 +24,13 @@ import { subscribe, postMessage, type JcefDataEvent } from '../bridge'
 import type { C4Node, C4Edge, C4Level } from '../explorer/types'
 import ELK, { type ElkNode } from 'elkjs/lib/elk.bundled.js'
 
-/* ─── Node Type Colors ─── */
+/* ─── Node Type Config ─── */
 
-const typeStyle: Record<string, { bg: string; border: string; accent: string }> = {
-  system:    { bg: '#161b22', border: '#30363d', accent: '#58a6ff' },
-  container: { bg: '#161b22', border: '#30363d', accent: '#2ea043' },
-  component: { bg: '#161b22', border: '#30363d', accent: '#d29922' },
-  code:      { bg: '#161b22', border: '#30363d', accent: '#bc8cff' },
+const typeConfig: Record<string, { accent: string; bgTint: string; label: string; letter: string }> = {
+  system:    { accent: '#8be9fd', bgTint: 'rgba(139,233,253,0.08)', label: 'System',    letter: 'S' },
+  container: { accent: '#50fa7b', bgTint: 'rgba(80,250,123,0.08)',  label: 'Container', letter: 'C' },
+  component: { accent: '#ffb86c', bgTint: 'rgba(255,184,108,0.08)', label: 'Component', letter: 'K' },
+  code:      { accent: '#bd93f9', bgTint: 'rgba(189,147,249,0.08)', label: 'Code',      letter: '{}' },
 }
 
 /* ─── Layout: ELK (layered algorithm) ─── */
@@ -115,20 +115,20 @@ async function layoutLevel(level: C4Level): Promise<{ nodes: Node[]; edges: Edge
       targetHandle,
       type: 'c4edge',
       data: e,
-      markerEnd: { type: MarkerType.ArrowClosed, color: '#484f58', width: 16, height: 16 },
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#6272a4', width: 16, height: 16 },
     }
   })
 
   return { nodes, edges }
 }
 
-/* ─── Custom C4 Node ─── */
+/* ─── Custom C4 Node (dashboard-style card) ─── */
 
 function C4NodeComponent({ data }: { data: C4Node }) {
-  const style = typeStyle[data.type] || typeStyle.system
+  const cfg = typeConfig[data.type] || typeConfig.system
 
   return (
-    <div className="c4-node" style={{ borderColor: style.border }}>
+    <div className="c4-step">
       <Handle id="top-src" type="source" position={Position.Top} className="c4-handle" />
       <Handle id="top-tgt" type="target" position={Position.Top} className="c4-handle" />
       <Handle id="right-src" type="source" position={Position.Right} className="c4-handle" />
@@ -138,18 +138,34 @@ function C4NodeComponent({ data }: { data: C4Node }) {
       <Handle id="left-src" type="source" position={Position.Left} className="c4-handle" />
       <Handle id="left-tgt" type="target" position={Position.Left} className="c4-handle" />
 
-      <div className="c4-node-header">
-        <span className="c4-node-badge" style={{ background: style.accent }}>
-          {data.type === 'system' ? 'S' : data.type === 'container' ? 'C' : data.type === 'component' ? 'K' : '{ }'}
-        </span>
-        <span className="c4-node-label">{data.label}</span>
-        {data.childFile && <span className="c4-node-drillable">+</span>}
+      {/* Header row */}
+      <div className="c4-step-header" style={{ background: cfg.bgTint }}>
+        <div className="c4-step-icon" style={{ background: `${cfg.accent}22`, color: cfg.accent }}>
+          {cfg.letter}
+        </div>
+        <div className="c4-step-info">
+          <div className="c4-step-name">{data.label}</div>
+          {data.technology && (
+            <div className="c4-step-cmd">{data.technology}</div>
+          )}
+        </div>
+        <div className="c4-step-right">
+          <span className="c4-step-badge" style={{ background: `${cfg.accent}1a`, color: cfg.accent }}>
+            {cfg.label}
+          </span>
+          {data.childFile && (
+            <svg className="c4-step-chevron" width="15" height="15" viewBox="0 0 16 16" fill="none">
+              <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          )}
+        </div>
       </div>
 
-      <div className="c4-node-desc">{data.description}</div>
-
-      {data.technology && (
-        <div className="c4-node-tech">[{data.technology}]</div>
+      {/* Description */}
+      {data.description && (
+        <div className="c4-step-body">
+          <div className="c4-step-desc">{data.description}</div>
+        </div>
       )}
     </div>
   )
@@ -174,7 +190,7 @@ function C4EdgeComponent({
         id={id}
         path={edgePath}
         markerEnd={markerEnd}
-        style={{ stroke: '#484f58', strokeWidth: 1.5 }}
+        style={{ stroke: '#6272a4', strokeWidth: 1.5 }}
       />
       {edgeData?.label && (
         <EdgeLabelRenderer>
@@ -303,11 +319,11 @@ export default function ArchitectureView() {
         >
           <Controls showInteractive={false} className="ex-controls" />
           <MiniMap
-            nodeColor={() => '#30363d'}
+            nodeColor={() => '#44475a'}
             maskColor="rgba(0, 0, 0, 0.7)"
             className="ex-minimap"
           />
-          <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="#21262d" />
+          <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="#44475a" />
         </ReactFlow>
       </div>
     </div>

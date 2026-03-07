@@ -2,6 +2,7 @@ import { StrictMode, useState, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.tsx'
 import ArchitectureView from './architecture/ArchitectureView.tsx'
+import PlaybookDagView from './playbook/PlaybookDagView.tsx'
 
 /**
  * Captures set-mode at the module level so it is never missed,
@@ -38,6 +39,7 @@ function Root() {
 
   if (!mode) return null
   if (mode === 'architecture') return <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}><ArchitectureView /></div>
+  if (mode === 'playbook') return <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}><PlaybookDagView /></div>
   return <App />
 }
 

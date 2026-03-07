@@ -119,6 +119,8 @@ class WebViewBridge(
                 "openFile" -> handleOpenFile(json)
                 "listArchitectureFiles" -> handleListArchitectureFiles()
                 "loadC4File" -> handleLoadC4File(json)
+                "listPlaybookFiles" -> handleListPlaybookFiles()
+                "loadPlaybookFile" -> handleLoadPlaybookFile(json)
                 else -> log.warn("Unknown bridge command: $command")
             }
         } catch (e: Exception) {
@@ -241,15 +243,17 @@ class WebViewBridge(
                     panel.pushData("architecture-files", "[]")
                     return@executeOnPooledThread
                 }
-                val archDir = File(basePath, ".citi-ai/architecture")
-                log.info("handleListArchitectureFiles: looking in ${archDir.absolutePath}, exists=${archDir.isDirectory}")
-                if (!archDir.isDirectory) {
+                val citiDir = File(basePath, ".citi-ai")
+                val archDirs = findSubdirs(citiDir, "architecture")
+                log.info("handleListArchitectureFiles: found ${archDirs.size} architecture dirs under ${citiDir.absolutePath}")
+                if (archDirs.isEmpty()) {
                     panel.pushData("architecture-files", "[]")
                     return@executeOnPooledThread
                 }
-                val files = archDir.listFiles { f -> f.name.endsWith(".c4.json") }
-                    ?.sortedBy { it.name }
-                    ?.mapNotNull { file ->
+                val files = archDirs.flatMap { dir ->
+                    dir.walkTopDown().filter { it.isFile && it.name.endsWith(".json") }.toList()
+                }.sortedBy { it.name }
+                    .mapNotNull { file ->
                         try {
                             val json = JsonParser.parseString(file.readText()).asJsonObject
                             mapOf(
@@ -263,7 +267,7 @@ class WebViewBridge(
                             log.warn("Failed to parse architecture file: ${file.name}", e)
                             null
                         }
-                    } ?: emptyList()
+                    }
                 log.info("handleListArchitectureFiles: found ${files.size} files, pushing to JS")
                 panel.pushData("architecture-files", gson.toJson(files))
             } catch (e: Exception) {
@@ -271,6 +275,67 @@ class WebViewBridge(
                 panel.pushData("architecture-files", "[]")
             }
         }
+    }
+
+    private fun handleListPlaybookFiles() {
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                val basePath = project.basePath
+                if (basePath == null) {
+                    panel.pushData("playbook-files", "[]")
+                    return@executeOnPooledThread
+                }
+                val citiDir = File(basePath, ".citi-ai")
+                val pbDirs = findSubdirs(citiDir, "playbook")
+                if (pbDirs.isEmpty()) {
+                    panel.pushData("playbook-files", "[]")
+                    return@executeOnPooledThread
+                }
+                val files = pbDirs.flatMap { dir ->
+                    dir.walkTopDown().filter { it.isFile && it.name.endsWith(".json") }.toList()
+                }.sortedBy { it.name }
+                    .mapNotNull { file ->
+                        try {
+                            val json = JsonParser.parseString(file.readText()).asJsonObject
+                            mapOf(
+                                "fileName" to file.name,
+                                "filePath" to file.absolutePath,
+                                "name" to (json.get("name")?.asString ?: file.nameWithoutExtension),
+                                "stepCount" to (json.getAsJsonArray("steps")?.size() ?: 0),
+                            )
+                        } catch (e: Exception) {
+                            log.warn("Failed to parse playbook file: ${file.name}", e)
+                            null
+                        }
+                    }
+                panel.pushData("playbook-files", gson.toJson(files))
+            } catch (e: Exception) {
+                log.warn("handleListPlaybookFiles failed", e)
+                panel.pushData("playbook-files", "[]")
+            }
+        }
+    }
+
+    private fun handleLoadPlaybookFile(json: com.google.gson.JsonObject) {
+        val path = json.get("path")?.asString ?: return
+        val vf = LocalFileSystem.getInstance().findFileByPath(path)
+        if (vf == null) {
+            log.warn("loadPlaybookFile: file not found: $path")
+            return
+        }
+        ApplicationManager.getApplication().invokeLater {
+            FileEditorManager.getInstance(project).openFile(vf, true)
+        }
+    }
+
+    /**
+     * Finds all subdirectories under [parent] whose name starts with [prefix].
+     * e.g. findSubdirs(citiDir, "playbook") matches "playbook", "playbooks", "playbook-v2"
+     */
+    private fun findSubdirs(parent: File, prefix: String): List<File> {
+        if (!parent.isDirectory) return emptyList()
+        return parent.listFiles { f -> f.isDirectory && f.name.startsWith(prefix) }
+            ?.toList() ?: emptyList()
     }
 
     private fun handleLoadC4File(json: com.google.gson.JsonObject) {
