@@ -34,23 +34,34 @@ import javax.swing.JComponent
  *
  * Based on the pattern from agent-codebase-tools JcefBrowserPanel.
  */
-class JcefBrowserPanel(parentDisposable: Disposable) : Disposable {
+class JcefBrowserPanel(
+    parentDisposable: Disposable,
+    private val deferLoad: Boolean = false,
+) : Disposable {
 
     private val log = Logger.getInstance(JcefBrowserPanel::class.java)
     private val browser: JBCefBrowser
     private val jsQuery: JBCefJSQuery
+    private val loaded = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /** External handler for messages sent from the webview via postMessage(). */
     var messageHandler: ((String) -> Unit)? = null
 
+    /** Called once after the JS bridge is injected and ready. */
+    var onBridgeReady: (() -> Unit)? = null
+
+    private val startUrl: String
+
     init {
         val devMode = System.getProperty("copilotsilent.webview.dev")?.toBoolean() == true
-        val startUrl = if (devMode) DEV_URL else RESOURCE_URL
+        startUrl = if (devMode) DEV_URL else RESOURCE_URL
 
-        browser = JBCefBrowser.createBuilder()
-            .setUrl(startUrl)
-            .build()
-        log.info("Loading webview from: $startUrl")
+        // Always create browser WITHOUT a URL. The caller triggers loading
+        // by calling load() after setting onBridgeReady, or via HierarchyListener
+        // for deferred (file editor) mode. This avoids the race where onLoadEnd
+        // fires before onBridgeReady is assigned.
+        browser = JBCefBrowser.createBuilder().build()
+        log.info("Creating webview, deferLoad=$deferLoad, startUrl=$startUrl")
 
         Disposer.register(parentDisposable, this)
 
@@ -67,11 +78,34 @@ class JcefBrowserPanel(parentDisposable: Disposable) : Disposable {
 
         browser.jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
             override fun onLoadEnd(cefBrowser: CefBrowser, frame: CefFrame, httpStatusCode: Int) {
-                if (frame.isMain) {
+                if (frame.isMain && cefBrowser.url != "about:blank") {
                     injectBridge(cefBrowser)
                 }
             }
         }, browser.cefBrowser)
+
+        if (deferLoad) {
+            // FileEditor: load URL once the component enters the Swing hierarchy
+            browser.component.addHierarchyListener { e ->
+                if (e.changeFlags and java.awt.event.HierarchyEvent.SHOWING_CHANGED.toLong() != 0L
+                    && browser.component.isShowing
+                    && loaded.compareAndSet(false, true)
+                ) {
+                    browser.loadURL(startUrl)
+                }
+            }
+        }
+    }
+
+    /**
+     * Start loading the page. Call this AFTER setting [onBridgeReady] and [messageHandler].
+     * For deferLoad=true panels, loading is automatic via HierarchyListener — this is a no-op.
+     */
+    fun load() {
+        if (!deferLoad && loaded.compareAndSet(false, true)) {
+            log.info("load() called — loading $startUrl")
+            browser.loadURL(startUrl)
+        }
     }
 
     val component: JComponent
@@ -125,7 +159,8 @@ class JcefBrowserPanel(parentDisposable: Disposable) : Disposable {
             console.log('[JcefBrowserPanel] Bridge injected');
         """.trimIndent()
         cefBrowser.executeJavaScript(js, cefBrowser.url, 0)
-        log.info("Bridge injection JS executed")
+        log.info("Bridge injection JS executed, onBridgeReady=${if (onBridgeReady != null) "SET" else "NULL"}")
+        onBridgeReady?.invoke()
     }
 
     /**

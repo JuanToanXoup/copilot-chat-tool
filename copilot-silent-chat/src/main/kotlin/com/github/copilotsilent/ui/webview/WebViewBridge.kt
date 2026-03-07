@@ -2,6 +2,7 @@ package com.github.copilotsilent.ui.webview
 
 import com.github.copilot.chat.conversation.agent.rpc.command.ChatMode
 import com.github.copilot.chat.conversation.agent.rpc.command.CopilotModel
+import com.github.copilotsilent.model.ArchitectureNodeDetailListener
 import com.github.copilotsilent.model.ModelsUpdateListener
 import com.github.copilotsilent.model.ModesUpdateListener
 import com.github.copilotsilent.model.SilentChatEvent
@@ -12,9 +13,13 @@ import com.github.copilotsilent.store.SessionStore
 import com.google.gson.Gson
 import com.google.gson.JsonParser
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.LocalFileSystem
+import java.io.File
 
 /**
  * Thin mediator between the JCEF browser and the plugin's MessageBus topics.
@@ -67,6 +72,10 @@ class WebViewBridge(
         connection.subscribe(ModesUpdateListener.TOPIC, ModesUpdateListener { modes, currentMode ->
             pushModes(modes, currentMode)
         })
+
+        connection.subscribe(ArchitectureNodeDetailListener.TOPIC, ArchitectureNodeDetailListener { nodeDetailJson ->
+            panel.pushData("node-detail", nodeDetailJson)
+        })
     }
 
     private fun pushModels(models: List<CopilotModel>) {
@@ -107,6 +116,8 @@ class WebViewBridge(
                 "getSessions" -> handleGetSessions()
                 "getPlaybooks" -> handleGetPlaybooks()
                 "getSession" -> handleGetSession(json)
+                "openFile" -> handleOpenFile(json)
+                "listArchitectureFiles" -> handleListArchitectureFiles()
                 else -> log.warn("Unknown bridge command: $command")
             }
         } catch (e: Exception) {
@@ -204,6 +215,61 @@ class WebViewBridge(
             "entries" to session.entries.map { entryToMap(it) },
         )
         panel.pushData("session", gson.toJson(data))
+    }
+
+    private fun handleOpenFile(json: com.google.gson.JsonObject) {
+        val path = json.get("path")?.asString ?: return
+        val line = json.get("line")?.asInt
+        val vf = LocalFileSystem.getInstance().findFileByPath(path)
+        if (vf == null) {
+            log.warn("File not found: $path")
+            return
+        }
+        ApplicationManager.getApplication().invokeLater {
+            FileEditorManager.getInstance(project).openFile(vf, true)
+        }
+    }
+
+    private fun handleListArchitectureFiles() {
+        // Run on pooled thread — this is called from the CEF thread and does file I/O
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                val basePath = project.basePath
+                if (basePath == null) {
+                    log.warn("handleListArchitectureFiles: project.basePath is null")
+                    panel.pushData("architecture-files", "[]")
+                    return@executeOnPooledThread
+                }
+                val archDir = File(basePath, ".citi-ai/architecture")
+                log.info("handleListArchitectureFiles: looking in ${archDir.absolutePath}, exists=${archDir.isDirectory}")
+                if (!archDir.isDirectory) {
+                    panel.pushData("architecture-files", "[]")
+                    return@executeOnPooledThread
+                }
+                val files = archDir.listFiles { f -> f.name.endsWith(".c4.json") }
+                    ?.sortedBy { it.name }
+                    ?.mapNotNull { file ->
+                        try {
+                            val json = JsonParser.parseString(file.readText()).asJsonObject
+                            mapOf(
+                                "fileName" to file.name,
+                                "filePath" to file.absolutePath,
+                                "title" to (json.get("title")?.asString ?: file.nameWithoutExtension),
+                                "level" to (json.get("level")?.asInt ?: 0),
+                                "nodeCount" to (json.getAsJsonArray("nodes")?.size() ?: 0),
+                            )
+                        } catch (e: Exception) {
+                            log.warn("Failed to parse architecture file: ${file.name}", e)
+                            null
+                        }
+                    } ?: emptyList()
+                log.info("handleListArchitectureFiles: found ${files.size} files, pushing to JS")
+                panel.pushData("architecture-files", gson.toJson(files))
+            } catch (e: Exception) {
+                log.warn("handleListArchitectureFiles failed", e)
+                panel.pushData("architecture-files", "[]")
+            }
+        }
     }
 
     private fun entryToMap(entry: SessionEntry): Map<String, Any?> = when (entry) {

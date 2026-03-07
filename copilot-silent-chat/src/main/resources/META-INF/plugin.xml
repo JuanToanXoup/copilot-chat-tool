@@ -18,6 +18,9 @@
         <postStartupActivity
             implementation="com.github.copilotsilent.semantic.IndexManagerInitializer"/>
 
+        <fileEditorProvider
+            implementation="com.github.copilotsilent.ui.editor.ArchitectureFileEditorProvider"/>
+
         <toolWindow id="Copilot Chat (React)"
                     anchor="right"
                     secondary="false"
