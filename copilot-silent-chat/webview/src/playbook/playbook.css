@@ -357,6 +357,64 @@
   line-height: 1.5;
 }
 
+/* ─── Parameter node (in DAG) ─── */
+.pb-param-node {
+  background: #282a36;
+  border: 1px solid rgba(139, 233, 253, 0.3);
+  border-radius: 10px;
+  padding: 10px 12px;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pb-param-node-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pb-param-node-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: rgba(139, 233, 253, 0.12);
+  color: #8be9fd;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.pb-param-node-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #8be9fd;
+  font-family: var(--font-mono);
+}
+
+.pb-param-node-input {
+  background: #21222c;
+  border: 1px solid #44475a;
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: #f8f8f2;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+  transition: border-color 0.2s;
+}
+.pb-param-node-input:focus {
+  border-color: #8be9fd;
+}
+.pb-param-node-input::placeholder {
+  color: #6272a4;
+  font-size: 0.7rem;
+}
+
 /* ─── Parameter form ─── */
 .pb-param-form {
   padding: 16px;

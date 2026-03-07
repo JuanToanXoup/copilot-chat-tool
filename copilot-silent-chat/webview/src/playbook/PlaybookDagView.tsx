@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   ReactFlow,
   Controls,
@@ -26,10 +26,13 @@ import '../explorer/explorer.css'
 
 const NODE_W = 260
 const NODE_H = 76
+const PARAM_NODE_W = 240
+const PARAM_NODE_H = 90
 const CONNECTOR_SIZE = 28
 const H_GAP = 40
 const V_GAP_STEP = 50
 const V_GAP_CONNECTOR = 50
+const V_GAP_PARAM = 60 // gap between param row and first step row
 
 const stateColors: Record<StepState, { accent: string; bg: string }> = {
   idle:    { accent: '#6272a4', bg: 'rgba(98,114,164,0.06)' },
@@ -38,11 +41,27 @@ const stateColors: Record<StepState, { accent: string; bg: string }> = {
   error:   { accent: '#ff5555', bg: 'rgba(255,85,85,0.08)' },
 }
 
-/* ─── Custom tree layout ─── */
+/* ─── Extract variable references from a prompt ─── */
+
+function extractVarRefs(prompt: string): string[] {
+  const refs: string[] = []
+  const regex = /\{([\w_-]+)\}/g
+  let match: RegExpExecArray | null
+  while ((match = regex.exec(prompt)) !== null) {
+    if (!refs.includes(match[1])) refs.push(match[1])
+  }
+  return refs
+}
+
+/* ─── Layout: params row → step layers ─── */
 
 type LayoutResult = { nodes: Node[]; edges: Edge[] }
 
-function layoutPlaybook(playbook: Playbook): LayoutResult {
+function layoutPlaybook(
+  playbook: Playbook,
+  onParamChange: (key: string, value: string) => void,
+  paramValues: Record<string, string>,
+): LayoutResult {
   playbook.steps.forEach((s) => { if (!s.dependsOn) s.dependsOn = [] })
 
   const steps = [...playbook.steps]
@@ -64,6 +83,7 @@ function layoutPlaybook(playbook: Playbook): LayoutResult {
   const stepMap = new Map<string, PlaybookStep>()
   steps.forEach((s) => stepMap.set(s.id, s))
 
+  // Layer assignment
   const layerOf = new Map<string, number>()
   function depth(id: string): number {
     if (layerOf.has(id)) return layerOf.get(id)!
@@ -98,6 +118,63 @@ function layoutPlaybook(playbook: Playbook): LayoutResult {
   const posOf = new Map<string, { x: number; y: number }>()
   let currentY = 0
 
+  // ── Parameter nodes (row above step layer 0) ──
+  const paramEntries = playbook.parameters ? Object.entries(playbook.parameters) : []
+  if (paramEntries.length > 0) {
+    const totalParamW = paramEntries.length * PARAM_NODE_W + (paramEntries.length - 1) * H_GAP
+    const paramStartX = -totalParamW / 2
+
+    // Figure out which steps reference each param
+    const paramToSteps = new Map<string, string[]>()
+    for (const [key] of paramEntries) {
+      const consumers: string[] = []
+      steps.forEach((s) => {
+        if (s.prompt.includes(`{${key}}`)) consumers.push(s.id)
+      })
+      paramToSteps.set(key, consumers)
+    }
+
+    paramEntries.forEach(([key, param], i) => {
+      const paramNodeId = `param-${key}`
+      const x = paramStartX + i * (PARAM_NODE_W + H_GAP)
+      nodes.push({
+        id: paramNodeId,
+        type: 'pbParam',
+        position: { x, y: currentY },
+        data: {
+          paramKey: key,
+          param,
+          value: paramValues[key] || '',
+          onChange: onParamChange,
+        },
+        style: { width: PARAM_NODE_W },
+      })
+      posOf.set(paramNodeId, { x, y: currentY })
+    })
+
+    currentY += PARAM_NODE_H + V_GAP_PARAM
+
+    // Edges: param → steps that reference it (deferred until steps are placed)
+    // We'll add these after step placement so we have their positions
+    // For now, store the mapping
+    for (const [key, consumers] of paramToSteps.entries()) {
+      const paramNodeId = `param-${key}`
+      consumers.forEach((stepId) => {
+        edges.push({
+          id: `e-${paramNodeId}-${stepId}`,
+          source: paramNodeId,
+          target: stepId,
+          sourceHandle: 'bottom-src',
+          targetHandle: 'top-tgt',
+          type: 'pbEdge',
+          style: { strokeDasharray: '6 3' },
+          markerEnd: { type: MarkerType.ArrowClosed, color: '#8be9fd', width: 10, height: 10 },
+        })
+      })
+    }
+  }
+
+  // ── Step layers ──
   for (let layer = 0; layer <= maxLayer; layer++) {
     const group = layers[layer]
     if (group.length === 0) continue
@@ -208,18 +285,6 @@ function layoutPlaybook(playbook: Playbook): LayoutResult {
   return { nodes, edges }
 }
 
-/* ─── Extract variable references from a prompt ─── */
-
-function extractVarRefs(prompt: string): string[] {
-  const refs: string[] = []
-  const regex = /\{([\w_-]+)\}/g
-  let match: RegExpExecArray | null
-  while ((match = regex.exec(prompt)) !== null) {
-    if (!refs.includes(match[1])) refs.push(match[1])
-  }
-  return refs
-}
-
 /* ─── Connector Node ─── */
 
 function ConnectorNode() {
@@ -230,6 +295,39 @@ function ConnectorNode() {
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
         <path d="M7 3v8M3 7h8" stroke="#6272a4" strokeWidth="1.5" strokeLinecap="round" />
       </svg>
+    </div>
+  )
+}
+
+/* ─── Parameter Node (with input field) ─── */
+
+function PbParamNode({ data }: { data: {
+  paramKey: string
+  param: PlaybookParam
+  value: string
+  onChange: (key: string, value: string) => void
+} }) {
+  return (
+    <div className="pb-param-node">
+      <Handle id="bottom-src" type="source" position={Position.Bottom} className="c4-handle" />
+      <div className="pb-param-node-header">
+        <div className="pb-param-node-icon">
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+            <path d="M2 3h8M2 6h8M2 9h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </div>
+        <div className="pb-param-node-label">
+          {data.paramKey}
+          {data.param.required !== false && <span style={{ color: '#ff5555', marginLeft: 3 }}>*</span>}
+        </div>
+      </div>
+      <input
+        className="pb-param-node-input"
+        type="text"
+        value={data.value}
+        placeholder={data.param.default || data.param.description}
+        onChange={(e) => data.onChange(data.paramKey, e.target.value)}
+      />
     </div>
   )
 }
@@ -303,7 +401,7 @@ function PbStepNode({ data }: { data: PlaybookStep & { _state?: StepState; _varR
 
 function PbEdgeComponent({
   id, sourceX, sourceY, targetX, targetY,
-  sourcePosition, targetPosition, markerEnd,
+  sourcePosition, targetPosition, markerEnd, style,
 }: EdgeProps) {
   const [edgePath] = getSmoothStepPath({
     sourceX, sourceY, sourcePosition,
@@ -315,12 +413,12 @@ function PbEdgeComponent({
       id={id}
       path={edgePath}
       markerEnd={markerEnd}
-      style={{ stroke: '#6272a4', strokeWidth: 1.5 }}
+      style={{ stroke: '#6272a4', strokeWidth: 1.5, ...style }}
     />
   )
 }
 
-const nodeTypes = { pbStep: PbStepNode, connector: ConnectorNode }
+const nodeTypes = { pbStep: PbStepNode, connector: ConnectorNode, pbParam: PbParamNode }
 const edgeTypes = { pbEdge: PbEdgeComponent }
 
 /* ─── DAG View ─── */
@@ -335,23 +433,47 @@ export default function PlaybookDagView() {
   const [stepResults, setStepResults] = useState<Record<string, string>>({})
   const [isRunning, setIsRunning] = useState(false)
 
+  // Use ref so the layout callback always sees the latest paramValues
+  const paramValuesRef = useRef(paramValues)
+  paramValuesRef.current = paramValues
+
+  const handleParamChange = useCallback((key: string, value: string) => {
+    setParamValues((prev) => ({ ...prev, [key]: value }))
+    // Update the param node's data so the input re-renders
+    setNodes((prevNodes) =>
+      prevNodes.map((n) => {
+        if (n.id === `param-${key}` && n.type === 'pbParam') {
+          return { ...n, data: { ...n.data, value } }
+        }
+        return n
+      })
+    )
+  }, [setNodes])
+
+  const handleParamChangeRef = useRef(handleParamChange)
+  handleParamChangeRef.current = handleParamChange
+
+  // Stable callback for layout to capture
+  const stableParamChange = useCallback((key: string, value: string) => {
+    handleParamChangeRef.current(key, value)
+  }, [])
+
   useEffect(() => {
     const unsub = subscribe((data: JcefDataEvent) => {
       if (data.channel === 'playbook-file') {
         const payload = data.payload as any
-        // Editor wraps as { _filePath, _raw: <playbook> }
         const pb = (payload._raw || payload) as Playbook
         setPlaybook(pb)
         setFilePath(payload._filePath || null)
         // Init param values with defaults
+        const init: Record<string, string> = {}
         if (pb.parameters) {
-          const init: Record<string, string> = {}
           for (const [key, param] of Object.entries(pb.parameters)) {
             init[key] = (param as PlaybookParam).default || ''
           }
-          setParamValues(init)
         }
-        const { nodes: n, edges: e } = layoutPlaybook(pb)
+        setParamValues(init)
+        const { nodes: n, edges: e } = layoutPlaybook(pb, stableParamChange, init)
         setNodes(n)
         setEdges(e)
       }
@@ -370,14 +492,17 @@ export default function PlaybookDagView() {
     })
     postMessage({ command: 'file-editor-ready' })
     return unsub
-  }, [setNodes, setEdges])
+  }, [setNodes, setEdges, stableParamChange])
 
   // Update node data with execution state and variable info
   useEffect(() => {
     if (!playbook) return
     const resolvedVarNames = Object.keys(stepResults).flatMap((id) => [`step_${id}_result`])
-    // Also add 'results' if any steps completed
     if (Object.keys(stepResults).length > 0) resolvedVarNames.push('results')
+    // Params with values are also resolved
+    Object.entries(paramValues).forEach(([key, val]) => {
+      if (val.trim()) resolvedVarNames.push(key)
+    })
 
     setNodes((prevNodes) =>
       prevNodes.map((node) => {
@@ -394,11 +519,11 @@ export default function PlaybookDagView() {
         }
       })
     )
-  }, [stepStates, stepResults, playbook, setNodes])
+  }, [stepStates, stepResults, paramValues, playbook, setNodes])
 
   const onNodeClick: NodeMouseHandler = useCallback(
     (_event: React.MouseEvent, node: Node) => {
-      if (node.type === 'connector') return
+      if (node.type === 'connector' || node.type === 'pbParam') return
       const step = node.data as PlaybookStep
       const allSteps = playbook?.steps ?? []
       postMessage({
@@ -462,29 +587,6 @@ export default function PlaybookDagView() {
           )}
         </div>
       </div>
-
-      {/* Parameter inputs — always visible when playbook has parameters */}
-      {hasParams && (
-        <div className="pb-param-form">
-          <div className="pb-param-title">Parameters</div>
-          {paramEntries.map(([key, param]) => (
-            <div key={key} className="pb-param-field">
-              <label className="pb-param-label">
-                {key}
-                {param.required !== false && <span style={{ color: '#ff5555' }}> *</span>}
-              </label>
-              <div className="pb-param-desc">{param.description}</div>
-              <input
-                className="pb-param-input"
-                type="text"
-                value={paramValues[key] || ''}
-                placeholder={param.default || ''}
-                onChange={(e) => setParamValues((prev) => ({ ...prev, [key]: e.target.value }))}
-              />
-            </div>
-          ))}
-        </div>
-      )}
 
       <div className="ex-graph" style={{ flex: 1 }}>
         <ReactFlow
