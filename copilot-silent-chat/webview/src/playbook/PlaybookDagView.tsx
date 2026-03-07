@@ -374,13 +374,15 @@ function PbStepNode({ data }: { data: PlaybookStep & { _state?: StepState; _varR
           <div className="c4-step-name">{data.name}</div>
           <div className="c4-step-cmd">
             {data.agentMode && <span className="pb-agent-badge" style={{ marginRight: 6 }}>Agent</span>}
-            {varRefs.length > 0 && (
-              <span style={{ color: unresolvedCount > 0 ? '#ffb86c' : '#50fa7b', fontSize: '0.65rem' }}>
-                {unresolvedCount > 0
-                  ? `${unresolvedCount} var${unresolvedCount > 1 ? 's' : ''} needed`
-                  : `${varRefs.length} var${varRefs.length > 1 ? 's' : ''} resolved`}
+            {varRefs.length > 0 && varRefs.map((v) => (
+              <span key={v} className="pb-agent-badge" style={{
+                marginRight: 2,
+                background: 'rgba(139, 233, 253, 0.12)',
+                color: '#8be9fd',
+              }}>
+                {v}
               </span>
-            )}
+            ))}
             {varRefs.length === 0 && (
               <span>{data.dependsOn.length > 0 ? `depends on: ${data.dependsOn.join(', ')}` : 'entry point'}</span>
             )}
