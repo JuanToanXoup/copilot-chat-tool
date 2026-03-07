@@ -19,6 +19,9 @@ export default function App() {
       if (data.channel === 'node-detail') {
         setActiveTab('explorer')
       }
+      if (data.channel === 'step-detail') {
+        setActiveTab('playbooks')
+      }
     })
   }, [])
 

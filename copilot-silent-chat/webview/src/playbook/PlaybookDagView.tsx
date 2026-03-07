@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   ReactFlow,
   Controls,
@@ -13,6 +13,7 @@ import {
   type Node,
   type Edge,
   type EdgeProps,
+  type NodeMouseHandler,
   MarkerType,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -360,6 +361,21 @@ export default function PlaybookDagView() {
     return unsub
   }, [setNodes, setEdges])
 
+  const onNodeClick: NodeMouseHandler = useCallback(
+    (_event: React.MouseEvent, node: Node) => {
+      if (node.type === 'connector') return
+      const step = node.data as PlaybookStep
+      const allSteps = playbook?.steps ?? []
+      postMessage({
+        command: 'showStepDetail',
+        step,
+        allSteps,
+        playbookName: playbook?.name ?? '',
+      })
+    },
+    [playbook],
+  )
+
   if (!playbook) {
     return (
       <div className="ex-container" style={{ alignItems: 'center', justifyContent: 'center' }}>
@@ -383,6 +399,7 @@ export default function PlaybookDagView() {
           edges={edges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
+          onNodeClick={onNodeClick}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           fitView

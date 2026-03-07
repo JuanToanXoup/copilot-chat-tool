@@ -3,6 +3,7 @@ package com.github.copilotsilent.ui.webview
 import com.github.copilot.chat.conversation.agent.rpc.command.ChatMode
 import com.github.copilot.chat.conversation.agent.rpc.command.CopilotModel
 import com.github.copilotsilent.model.ArchitectureNodeDetailListener
+import com.github.copilotsilent.model.PlaybookStepDetailListener
 import com.github.copilotsilent.model.ModelsUpdateListener
 import com.github.copilotsilent.model.ModesUpdateListener
 import com.github.copilotsilent.model.SilentChatEvent
@@ -75,6 +76,10 @@ class WebViewBridge(
 
         connection.subscribe(ArchitectureNodeDetailListener.TOPIC, ArchitectureNodeDetailListener { nodeDetailJson ->
             panel.pushData("node-detail", nodeDetailJson)
+        })
+
+        connection.subscribe(PlaybookStepDetailListener.TOPIC, PlaybookStepDetailListener { stepDetailJson ->
+            panel.pushData("step-detail", stepDetailJson)
         })
     }
 

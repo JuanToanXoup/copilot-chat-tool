@@ -1,5 +1,6 @@
 package com.github.copilotsilent.ui.editor
 
+import com.github.copilotsilent.model.PlaybookStepDetailListener
 import com.github.copilotsilent.ui.webview.JcefBrowserPanel
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
@@ -11,6 +12,7 @@ import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorState
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.openapi.vfs.VirtualFile
 import com.google.gson.JsonParser
@@ -71,6 +73,17 @@ class PlaybookPreviewEditor(
 
             when (command) {
                 "file-editor-ready" -> pushFileContent()
+                "showStepDetail" -> {
+                    val detailJson = raw
+                    ApplicationManager.getApplication().invokeLater {
+                        project.messageBus
+                            .syncPublisher(PlaybookStepDetailListener.TOPIC)
+                            .onStepDetail(detailJson)
+                        ToolWindowManager.getInstance(project)
+                            .getToolWindow("Copilot Chat (React)")
+                            ?.activate(null)
+                    }
+                }
                 else -> log.info("Unhandled playbook command: $command")
             }
         } catch (e: Exception) {
