@@ -1,5 +1,14 @@
+plugins {
+    id("com.github.node-gradle.node") version "7.1.0"
+}
+
 group = "ai.citi.agent_automation"
 version = providers.gradleProperty("extensionVersion").get()
+
+node {
+    download = true
+    version = providers.gradleProperty("nodeVersion").get()
+}
 
 // ── Shared webview source from IntelliJ project ──────────────────────────────
 // The React webview is maintained in the IntelliJ plugin. The VS Code extension
@@ -9,6 +18,10 @@ version = providers.gradleProperty("extensionVersion").get()
 
 val webviewMergedDir = layout.buildDirectory.dir("webview-merged")
 val intellijWebviewDir = file("../copilot-silent-chat/webview")
+
+// Vite config uses outDir: '../src/main/resources/webview' relative to the merged
+// webview dir, so the built output lands at build/src/main/resources/webview/
+val webviewBuildOutput = layout.buildDirectory.dir("src/main/resources/webview")
 
 val mergeWebviewSources by tasks.registering(Copy::class) {
     description = "Merge IntelliJ webview source with VS Code bridge overlay"
@@ -24,26 +37,22 @@ val mergeWebviewSources by tasks.registering(Copy::class) {
 
 // ── npm install (extension root) ─────────────────────────────────────────────
 
-val npmInstallExtension by tasks.registering(Exec::class) {
+val npmInstallExtension by tasks.registering(com.github.gradle.node.npm.task.NpmTask::class) {
     description = "Install extension host dependencies"
-    workingDir = projectDir
-    commandLine("npm", "install")
+    args = listOf("install")
 
     inputs.file("package.json")
-    if (file("package-lock.json").exists()) {
-        inputs.file("package-lock.json")
-    }
     outputs.dir("node_modules")
 }
 
 // ── npm install (merged webview) ─────────────────────────────────────────────
 
-val npmInstallWebview by tasks.registering(Exec::class) {
+val npmInstallWebview by tasks.registering(com.github.gradle.node.npm.task.NpmTask::class) {
     dependsOn(mergeWebviewSources)
     description = "Install webview dependencies in merged directory"
 
     workingDir = webviewMergedDir.get().asFile
-    commandLine("npm", "install")
+    args = listOf("install")
 
     inputs.file(webviewMergedDir.map { it.file("package.json") })
     outputs.dir(webviewMergedDir.map { it.dir("node_modules") })
@@ -51,22 +60,18 @@ val npmInstallWebview by tasks.registering(Exec::class) {
 
 // ── Build webview (Vite) ─────────────────────────────────────────────────────
 
-val buildWebview by tasks.registering(Exec::class) {
+val buildWebview by tasks.registering(com.github.gradle.node.npm.task.NpmTask::class) {
     dependsOn(npmInstallWebview)
     description = "Build React webview via Vite (tsc + vite build)"
 
     workingDir = webviewMergedDir.get().asFile
-    commandLine("npm", "run", "build")
+    args = listOf("run", "build")
 
     inputs.dir(webviewMergedDir.map { it.dir("src") })
-    outputs.dir(layout.buildDirectory.dir("src/main/resources/webview"))
+    outputs.dir(webviewBuildOutput)
 }
 
 // ── Copy webview output into dist/webview/ ───────────────────────────────────
-// Vite config uses outDir: '../src/main/resources/webview' relative to the merged
-// webview dir, so the built output lands at build/src/main/resources/webview/
-
-val webviewBuildOutput = layout.buildDirectory.dir("src/main/resources/webview")
 
 val copyWebviewDist by tasks.registering(Copy::class) {
     dependsOn(buildWebview)
@@ -78,13 +83,12 @@ val copyWebviewDist by tasks.registering(Copy::class) {
 
 // ── Build extension (esbuild) ────────────────────────────────────────────────
 
-val buildExtension by tasks.registering(Exec::class) {
+val buildExtension by tasks.registering(com.github.gradle.node.npm.task.NpxTask::class) {
     dependsOn(npmInstallExtension)
     description = "Bundle extension host via esbuild"
 
-    workingDir = projectDir
-    commandLine(
-        "npx", "esbuild",
+    command = "esbuild"
+    args = listOf(
         "src/extension.ts",
         "--bundle",
         "--outfile=dist/extension.js",
@@ -102,12 +106,12 @@ val buildExtension by tasks.registering(Exec::class) {
 
 // ── TypeScript type-check (no emit) ──────────────────────────────────────────
 
-val typeCheck by tasks.registering(Exec::class) {
+val typeCheck by tasks.registering(com.github.gradle.node.npm.task.NpxTask::class) {
     dependsOn(npmInstallExtension)
     description = "Run TypeScript compiler for type checking only"
 
-    workingDir = projectDir
-    commandLine("npx", "tsc", "--noEmit")
+    command = "tsc"
+    args = listOf("--noEmit")
 
     inputs.dir("src")
     inputs.file("tsconfig.json")
@@ -115,32 +119,35 @@ val typeCheck by tasks.registering(Exec::class) {
 
 // ── Lint ─────────────────────────────────────────────────────────────────────
 
-val lint by tasks.registering(Exec::class) {
+val lint by tasks.registering(com.github.gradle.node.npm.task.NpxTask::class) {
     dependsOn(npmInstallExtension)
     description = "Run ESLint on extension source"
 
-    workingDir = projectDir
-    commandLine("npx", "eslint", "src/")
+    command = "eslint"
+    args = listOf("src/")
 }
 
 // ── Test ─────────────────────────────────────────────────────────────────────
 
-val test by tasks.registering(Exec::class) {
+val test by tasks.registering(com.github.gradle.node.npm.task.NpxTask::class) {
     dependsOn(npmInstallExtension)
     description = "Run vitest"
 
-    workingDir = projectDir
-    commandLine("npx", "vitest", "run")
+    command = "vitest"
+    args = listOf("run")
 }
 
 // ── Package VSIX ─────────────────────────────────────────────────────────────
 
-val packageVsix by tasks.registering(Exec::class) {
+val packageVsix by tasks.registering(com.github.gradle.node.npm.task.NpxTask::class) {
     dependsOn(buildExtension, copyWebviewDist)
     description = "Package VS Code extension as .vsix"
 
-    workingDir = projectDir
-    commandLine("npx", "vsce", "package", "--no-dependencies")
+    command = "vsce"
+    args = listOf("package", "--no-dependencies", "--skip-license")
+
+    // Skip vscode:prepublish — Gradle already built everything
+    environment.put("VSCE_TESTS", "1")
 
     outputs.files(fileTree(".") { include("*.vsix") })
 }

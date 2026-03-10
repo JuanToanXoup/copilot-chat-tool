@@ -53,13 +53,9 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run build",
-    "build": "npm run build:ext && npm run build:webview",
+    "vscode:prepublish": "echo 'Use ./gradlew buildPlugin to build and package'",
     "build:ext": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:better-sqlite3 --format=cjs --platform=node --target=node18",
-    "build:webview": "cd webview && npm run build && cp -r dist/* ../dist/webview/",
     "watch:ext": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:better-sqlite3 --format=cjs --platform=node --target=node18 --watch",
-    "dev": "concurrently \"npm run watch:ext\" \"cd webview && npm run dev\"",
-    "package": "vsce package",
     "lint": "eslint src/",
     "test": "vitest run"
   },
