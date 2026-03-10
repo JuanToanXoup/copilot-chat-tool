@@ -4,3 +4,5 @@ dist/
 webview/node_modules/
 webview/dist/
 .vscode-test/
+build/
+.gradle/

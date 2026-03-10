@@ -13,6 +13,15 @@
  *   Receive: window.addEventListener('message') with {channel, payload}
  */
 
+// Global type declarations for compatibility with shared webview code
+declare global {
+  interface Window {
+    __bridge?: {
+      postMessage: (json: string) => void
+    }
+  }
+}
+
 // Acquire the VS Code API (available in webview context)
 // @ts-expect-error acquireVsCodeApi is injected by VS Code
 const vscode = acquireVsCodeApi();
@@ -21,6 +30,9 @@ export interface BridgeData {
   channel: string;
   payload: any;
 }
+
+// Alias for compatibility with shared webview code (IntelliJ uses JcefDataEvent)
+export type JcefDataEvent = BridgeData;
 
 /**
  * Send a command to the extension host.
