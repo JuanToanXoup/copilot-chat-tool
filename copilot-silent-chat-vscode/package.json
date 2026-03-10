@@ -1,0 +1,81 @@
+{
+  "name": "copilot-silent-chat",
+  "displayName": "Copilot Silent Chat",
+  "description": "Programmatically drive GitHub Copilot chat sessions with session persistence, replay, and semantic search",
+  "version": "0.1.0",
+  "publisher": "copilot-silent",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Chat",
+    "AI"
+  ],
+  "extensionDependencies": [
+    "github.copilot-chat"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "copilot-silent-chat",
+          "title": "Copilot Silent Chat",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "copilot-silent-chat": [
+        {
+          "type": "webview",
+          "id": "copilot-silent-chat.chatView",
+          "name": "Chat"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "copilot-silent-chat.sendMessage",
+        "title": "Copilot Silent Chat: Send Message"
+      },
+      {
+        "command": "copilot-silent-chat.newSession",
+        "title": "Copilot Silent Chat: New Session"
+      },
+      {
+        "command": "copilot-silent-chat.stopGeneration",
+        "title": "Copilot Silent Chat: Stop Generation"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "npm run build:ext && npm run build:webview",
+    "build:ext": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:better-sqlite3 --format=cjs --platform=node --target=node18",
+    "build:webview": "cd webview && npm run build && cp -r dist/* ../dist/webview/",
+    "watch:ext": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:better-sqlite3 --format=cjs --platform=node --target=node18 --watch",
+    "dev": "concurrently \"npm run watch:ext\" \"cd webview && npm run dev\"",
+    "package": "vsce package",
+    "lint": "eslint src/",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/node": "^18.19.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.0.0",
+    "concurrently": "^8.2.2",
+    "esbuild": "^0.20.0",
+    "eslint": "^8.56.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "uuid": "^9.0.1"
+  }
+}
