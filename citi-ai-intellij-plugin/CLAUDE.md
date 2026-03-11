@@ -21,7 +21,7 @@ IntelliJ plugin that sends messages to GitHub Copilot programmatically without o
 cd webview
 npm install
 npm run build                # Production build → src/main/resources/webview/
-npm run dev                  # Vite dev server at localhost:5173 (use -Dcopilotsilent.webview.dev=true)
+npm run dev                  # Vite dev server at localhost:5173 (use -Dciti.assist.webview.dev=true)
 ```
 
 ## Architecture

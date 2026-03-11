@@ -4,7 +4,7 @@ plugins {
     application
 }
 
-group = "com.github.copilotsilent"
+group = "com.citi.assist"
 version = "0.1.0"
 
 kotlin {
@@ -27,7 +27,7 @@ dependencies {
 }
 
 application {
-    mainClass.set("com.github.copilotsilent.backend.server.BackendServerKt")
+    mainClass.set("com.citi.assist.backend.server.BackendServerKt")
 }
 
 tasks.shadowJar {

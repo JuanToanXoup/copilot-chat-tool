@@ -31,11 +31,11 @@ npm run build                # Production build (tsc + vite) -> src/main/resourc
 npm run dev                  # Vite dev server at localhost:5173
 ```
 
-Use `-Dcopilotsilent.webview.dev=true` VM option with `runIde` to load from dev server instead of classpath.
+Use `-Dciti.assist.webview.dev=true` VM option with `runIde` to load from dev server instead of classpath.
 
 ## Architecture
 
-### Kotlin Plugin (`src/main/kotlin/com/github/copilotsilent/`)
+### Kotlin Plugin (`src/main/kotlin/com/citi/assist/`)
 
 - **`service/CopilotSilentChatService`** — Project-level service. Wraps `sendMessage()` in `withContext(Dispatchers.EDT)` (Copilot requires EDT read access). Manages session IDs and conversation state.
 - **`service/SilentProgressHandler`** — Extends Copilot's `AbstractCopilotAgentConversationProgressHandler`. Dispatches events as `SilentChatEvent` sealed class. Ignores `hideText` flag to capture agent-mode replies. Extracts reply text from `AgentRound.reply` in `editAgentRounds`.

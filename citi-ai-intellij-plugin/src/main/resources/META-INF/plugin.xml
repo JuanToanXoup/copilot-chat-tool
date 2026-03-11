@@ -1,5 +1,5 @@
 <idea-plugin>
-    <id>com.github.copilotsilent</id>
+    <id>com.citi.assist</id>
     <name>Copilot Silent Chat</name>
     <version>0.1.0</version>
     <vendor>citi-ai-intellij-plugin</vendor>
@@ -12,27 +12,27 @@
 
     <extensions defaultExtensionNs="com.intellij">
         <postStartupActivity
-            implementation="com.github.copilotsilent.store.SessionStoreInitializer"/>
+            implementation="com.citi.assist.store.SessionStoreInitializer"/>
         <postStartupActivity
-            implementation="com.github.copilotsilent.service.StateFlowBroadcasterInitializer"/>
+            implementation="com.citi.assist.service.StateFlowBroadcasterInitializer"/>
         <postStartupActivity
-            implementation="com.github.copilotsilent.semantic.IndexManagerInitializer"/>
+            implementation="com.citi.assist.semantic.IndexManagerInitializer"/>
 
         <fileEditorProvider
-            implementation="com.github.copilotsilent.ui.editor.ArchitectureFileEditorProvider"/>
+            implementation="com.citi.assist.ui.editor.ArchitectureFileEditorProvider"/>
         <fileEditorProvider
-            implementation="com.github.copilotsilent.ui.editor.PlaybookFileEditorProvider"/>
+            implementation="com.citi.assist.ui.editor.PlaybookFileEditorProvider"/>
 
         <toolWindow id="Copilot Chat (React)"
                     anchor="right"
                     secondary="false"
-                    factoryClass="com.github.copilotsilent.ui.webview.CopilotWebToolWindowFactory"
+                    factoryClass="com.citi.assist.ui.webview.CopilotWebToolWindowFactory"
                     icon="AllIcons.Actions.Lightning"/>
     </extensions>
 
     <actions>
         <action id="CopilotSilentChat.Send"
-                class="com.github.copilotsilent.ui.SendSilentMessageAction"
+                class="com.citi.assist.ui.SendSilentMessageAction"
                 text="Send Silent Copilot Message"
                 description="Send a message to Copilot without opening the tool window">
             <add-to-group group-id="ToolsMenu" anchor="last"/>

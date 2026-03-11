@@ -171,7 +171,7 @@ cd webview
 npm run dev     # Vite dev server with HMR at localhost:5173
 ```
 
-Then launch the IDE with `-Dcopilotsilent.webview.dev=true` to load from the dev server instead of classpath resources. The Kotlin bridge works normally in dev mode.
+Then launch the IDE with `-Dciti.assist.webview.dev=true` to load from the dev server instead of classpath resources. The Kotlin bridge works normally in dev mode.
 
 ## JCEF Availability
 

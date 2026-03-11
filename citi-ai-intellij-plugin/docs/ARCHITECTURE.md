@@ -31,7 +31,7 @@ CopilotSilentChatService.sendMessage()
 ## Package Structure
 
 ```
-com.github.copilotsilent/
+com.citi.assist/
 ├── model/                           # Data contract
 │   └── SilentChatEvent.kt          # Sealed class — every event type, each with timestamp
 ├── service/                         # Single-request logic
