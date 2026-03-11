@@ -6,13 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This repository has two parts:
 
-1. **`copilot-silent-chat/`** — An IntelliJ plugin (Kotlin + React) that programmatically drives GitHub Copilot chat sessions. It calls `CopilotAgentSessionManager.sendMessage()` directly — the same code path the real Copilot UI uses, minus `showChatToolWindow()`. Includes a JCEF-based React UI, session persistence in SQLite, semantic code search via ONNX embeddings, and session replay.
+1. **`citi-ai-intellij-plugin/`** — An IntelliJ plugin (Kotlin + React) that programmatically drives GitHub Copilot chat sessions. It calls `CopilotAgentSessionManager.sendMessage()` directly — the same code path the real Copilot UI uses, minus `showChatToolWindow()`. Includes a JCEF-based React UI, session persistence in SQLite, semantic code search via ONNX embeddings, and session replay.
 
 2. **`github-copilot-intellij-1.5.65-243/`** — Extracted Copilot plugin (v1.5.65, IntelliJ 243) used as a compile-only reference. Contains JARs, source JARs, the Node.js language server, agent prompts, and Tree-sitter WASM parsers. Not built — only analyzed and compiled against.
 
 ## Build Commands
 
-All commands run from `copilot-silent-chat/`:
+All commands run from `citi-ai-intellij-plugin/`:
 
 ```bash
 ./gradlew buildPlugin        # Full build: webview + Kotlin + package ZIP
@@ -25,7 +25,7 @@ All commands run from `copilot-silent-chat/`:
 ### Webview Development
 
 ```bash
-cd copilot-silent-chat/webview
+cd citi-ai-intellij-plugin/webview
 npm install
 npm run build                # Production build (tsc + vite) -> src/main/resources/webview/
 npm run dev                  # Vite dev server at localhost:5173

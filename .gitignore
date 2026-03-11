@@ -4,8 +4,8 @@
 .gradle/
 
 # Webview
-copilot-silent-chat/webview/node_modules/
-copilot-silent-chat/src/main/resources/webview/
+citi-ai-intellij-plugin/webview/node_modules/
+citi-ai-intellij-plugin/src/main/resources/webview/
 
 # VS Code extension
 vscode-extension/node_modules/

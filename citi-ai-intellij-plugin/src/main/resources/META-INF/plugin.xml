@@ -2,7 +2,7 @@
     <id>com.github.copilotsilent</id>
     <name>Copilot Silent Chat</name>
     <version>0.1.0</version>
-    <vendor>copilot-silent-chat</vendor>
+    <vendor>citi-ai-intellij-plugin</vendor>
 
     <description>Send messages to GitHub Copilot programmatically without opening the tool window.</description>
 

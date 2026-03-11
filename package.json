@@ -1,7 +1,7 @@
 {
   "private": true,
   "workspaces": [
-    "copilot-silent-chat/webview",
+    "citi-ai-intellij-plugin/webview",
     "vscode-extension"
   ]
 }
