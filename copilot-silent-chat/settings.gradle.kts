@@ -1,1 +1,1 @@
-rootProject.name = "copilot-silent-chat"
+// Subproject — settings managed by root settings.gradle.kts
