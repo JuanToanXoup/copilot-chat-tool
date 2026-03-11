@@ -1,7 +1,20 @@
 /copilot-chat-tool.iml
 /github-copilot-intellij-1.5.65-243/
 /.idea/
+.gradle/
 
 # Webview
 copilot-silent-chat/webview/node_modules/
 copilot-silent-chat/src/main/resources/webview/
+
+# VS Code extension
+vscode-extension/node_modules/
+vscode-extension/dist/
+vscode-extension/ext/
+vscode-extension/*.vsix
+
+# Shared backend
+shared-backend/build/
+
+# npm workspaces
+node_modules/
