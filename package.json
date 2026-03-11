@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "workspaces": [
+    "citi-ai-intellij-plugin/webview",
+    "vscode-extension"
+  ]
+}

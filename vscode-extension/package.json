@@ -1,0 +1,65 @@
+{
+  "name": "citi-ai-vscode",
+  "displayName": "Copilot Silent Chat",
+  "description": "Programmatically drive GitHub Copilot chat sessions from VS Code",
+  "version": "0.1.0",
+  "publisher": "citi-ai",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "copilotSilentChat.openChat",
+        "title": "Copilot Silent Chat: Open Chat"
+      },
+      {
+        "command": "copilotSilentChat.openSessions",
+        "title": "Copilot Silent Chat: View Sessions"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "citi-ai",
+          "title": "Copilot Silent Chat",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "citi-ai": [
+        {
+          "type": "webview",
+          "id": "copilotSilentChat.chatView",
+          "name": "Chat"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
+    "watch": "npm run build -- --watch",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "shiki": "^4.0.1",
+    "@shikijs/rehype": "^4.0.1"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.8.3",
+    "@vscode/vsce": "^2.24.0"
+  }
+}
